@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -54,7 +53,7 @@ func errorHandler() func(http.ResponseWriter, *http.Request, error) {
 
 func modifyResponse() func(*http.Response) error {
 	return func(resp *http.Response) error {
-		return errors.New("response body is invalid")
+		return nil
 	}
 }
 
