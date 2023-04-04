@@ -14,6 +14,7 @@ import (
 var (
 	defaultToken  string
 	openAIApiAddr = "https://api.openai.com"
+	host          string
 	authHeader    = "Authorization"
 )
 
@@ -42,6 +43,7 @@ func modifyRequest(req *http.Request) {
 	if req.Header.Get(authHeader) == "" {
 		req.Header.Set(authHeader, "Bearer "+defaultToken)
 	}
+	req.Host = "api.openai.com"
 	req.Header.Set("Host", "api.openai.com")
 }
 
