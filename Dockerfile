@@ -1,4 +1,4 @@
-FROM ghcr.io/ghcri/golang:1.17 as builder
+FROM ghcr.io/ghcri/golang:1.19 as builder
 
 ARG ARG_GOPROXY
 ENV GOPROXY $ARG_GOPROXY
@@ -14,6 +14,6 @@ RUN make build
 
 FROM quay.io/orvice/go-runtime:latest
 
-ENV PROJECT_NAME v2ray-mu
+ENV PROJECT_NAME openai-proxy
 
 COPY --from=builder /home/app/bin/${PROJECT_NAME} .
