@@ -8,6 +8,8 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
+
+	"golang.org/x/exp/slog"
 )
 
 var (
@@ -64,6 +66,7 @@ func ProxyRequestHandler(proxy *httputil.ReverseProxy) func(http.ResponseWriter,
 }
 
 func main() {
+	slog.Info("Starting openai proxy server")
 	defaultToken = os.Getenv("OPENAI_API_KEY")
 	// initialize a reverse proxy and pass the actual backend server url here
 	proxy, err := NewProxy(openAIApiAddr)
