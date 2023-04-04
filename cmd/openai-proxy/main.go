@@ -42,6 +42,7 @@ func modifyRequest(req *http.Request) {
 	if req.Header.Get(authHeader) == "" {
 		req.Header.Set(authHeader, "Bearer "+defaultToken)
 	}
+	req.Header.Set("Host", "api.openai.com")
 }
 
 func errorHandler() func(http.ResponseWriter, *http.Request, error) {
