@@ -1,4 +1,4 @@
-FROM ghcr.io/ghcri/golang:1.19 as builder
+FROM golang:1.19 as builder
 
 ARG ARG_GOPROXY
 ENV GOPROXY $ARG_GOPROXY
