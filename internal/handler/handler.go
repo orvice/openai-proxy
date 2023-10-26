@@ -14,6 +14,7 @@ var (
 	defaultToken  string
 	openAIApiAddr = "https://api.openai.com"
 	authHeader    = "Authorization"
+	openaiProxy   *httputil.ReverseProxy
 )
 
 // NewProxy takes target host and creates a reverse proxy
@@ -77,12 +78,23 @@ func Router(r *gin.Engine) {
 
 func Init() {
 	defaultToken = os.Getenv("OPENAI_API_KEY")
+	proxy, err := NewProxy(openAIApiAddr)
+	if err != nil {
+		slog.Error("new proxy error", "error", err)
+		return
+	}
+	openaiProxy = proxy
 }
 
 func proxy(c *gin.Context) {
-	// initialize a reverse proxy and pass the actual backend server url here
-	proxy, err := NewProxy(openAIApiAddr)
-	if err != nil {
-	}
-	proxy.ServeHTTP(c.Writer, c.Request)
+	slog.Info("proxy request",
+		"CF-Connecting-IP", c.Request.Header.Get("CF-Connecting-IP"),
+		"ua", c.Request.UserAgent(),
+		"method", c.Request.Method,
+		"path", c.Request.URL.Path)
+	openaiProxy.ServeHTTP(c.Writer, c.Request)
+}
+
+func chatComplections(c *gin.Context) {
+
 }
