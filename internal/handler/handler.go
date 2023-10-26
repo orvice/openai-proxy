@@ -45,8 +45,8 @@ func modifyRequest(req *http.Request) {
 		req.Header.Set(authHeader, "Bearer "+defaultToken)
 	} else {
 		slog.Info("token found in request")
-		authHeader := req.Header.Get(authHeader)
-		arr := strings.Split(authHeader, " ")
+		bearerHeader := req.Header.Get(authHeader)
+		arr := strings.Split(bearerHeader, " ")
 		var key string
 		if len(arr) == 2 {
 			key = arr[1]
