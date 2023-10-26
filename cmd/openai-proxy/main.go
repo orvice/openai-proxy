@@ -1,20 +1,16 @@
 package main
 
 import (
-	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"os"
-
-	"golang.org/x/exp/slog"
 )
 
 var (
 	defaultToken  string
 	openAIApiAddr = "https://api.openai.com"
-	host          string
 	authHeader    = "Authorization"
 )
 
@@ -49,7 +45,7 @@ func modifyRequest(req *http.Request) {
 
 func errorHandler() func(http.ResponseWriter, *http.Request, error) {
 	return func(w http.ResponseWriter, req *http.Request, err error) {
-		fmt.Printf("Got error while modifying response: %v \n", err)
+		slog.Error("Got error while modifying response", "error", err)
 		return
 	}
 }
@@ -63,6 +59,11 @@ func modifyResponse() func(*http.Response) error {
 // ProxyRequestHandler handles the http request using proxy
 func ProxyRequestHandler(proxy *httputil.ReverseProxy) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
+		slog.Info("proxy request",
+			"CF-Connecting-IP", r.Header.Get("CF-Connecting-IP"),
+			"ua", r.UserAgent(),
+			"method", r.Method,
+			"path", r.URL.Path)
 		proxy.ServeHTTP(w, r)
 	}
 }
@@ -77,5 +78,8 @@ func main() {
 	}
 	// handle all requests to your server using the proxy
 	http.HandleFunc("/", ProxyRequestHandler(proxy))
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	err = http.ListenAndServe(":8080", nil)
+	if err != nil {
+		slog.Error("Error starting server: " + err.Error())
+	}
 }
