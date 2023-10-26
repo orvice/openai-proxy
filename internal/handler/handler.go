@@ -72,6 +72,7 @@ func ProxyRequestHandler(proxy *httputil.ReverseProxy) func(http.ResponseWriter,
 
 func Router(r *gin.Engine) {
 	r.GET("/v1/chat/completions", proxy)
+	r.NoRoute(proxy)
 }
 
 func Init() {
