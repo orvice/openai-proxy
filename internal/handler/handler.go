@@ -6,6 +6,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -40,7 +41,21 @@ func NewProxy(targetHost string) (*httputil.ReverseProxy, error) {
 func modifyRequest(req *http.Request) {
 	//  chekc if auth header is empty
 	if req.Header.Get(authHeader) == "" {
+		slog.Info("no token found, using default token")
 		req.Header.Set(authHeader, "Bearer "+defaultToken)
+	} else {
+		slog.Info("token found in request")
+		authHeader := req.Header.Get(authHeader)
+		arr := strings.Split(authHeader, " ")
+		var key string
+		if len(arr) == 2 {
+			key = arr[1]
+		}
+		if key == "null" {
+			slog.Info(" token is null, using default token")
+			req.Header.Del(authHeader)
+			req.Header.Set(authHeader, "Bearer "+defaultToken)
+		}
 	}
 	req.Host = "api.openai.com"
 	req.Header.Set("Host", "api.openai.com")
