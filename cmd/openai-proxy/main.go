@@ -9,7 +9,7 @@ import (
 func main() {
 	handler.Init()
 	app := core.New(&app.Config{
-		Service: "echo",
+		Service: "openai-proxy",
 		Router:  handler.Router,
 	})
 	app.Run()
