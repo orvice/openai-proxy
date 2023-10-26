@@ -92,7 +92,7 @@ func proxy(c *gin.Context) {
 		"ua", c.Request.UserAgent(),
 		"method", c.Request.Method,
 		"path", c.Request.URL.Path)
-	openaiProxy.ServeHTTP(c.Writer, c.Request)
+	ProxyRequestHandler(openaiProxy)(c.Writer, c.Request)
 }
 
 func chatComplections(c *gin.Context) {
