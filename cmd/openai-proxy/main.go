@@ -59,6 +59,11 @@ func modifyResponse() func(*http.Response) error {
 // ProxyRequestHandler handles the http request using proxy
 func ProxyRequestHandler(proxy *httputil.ReverseProxy) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
+		slog.Info("proxy request",
+			"CF-Connecting-IP", r.Header.Get("CF-Connecting-IP"),
+			"ua", r.UserAgent(),
+			"method", r.Method,
+			"path", r.URL.Path)
 		proxy.ServeHTTP(w, r)
 	}
 }
