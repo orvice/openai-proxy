@@ -59,18 +59,6 @@ func modifyResponse() func(*http.Response) error {
 	}
 }
 
-// ProxyRequestHandler handles the http request using proxy
-func ProxyRequestHandler(proxy *httputil.ReverseProxy) func(http.ResponseWriter, *http.Request) {
-	return func(w http.ResponseWriter, r *http.Request) {
-		slog.Info("proxy request",
-			"CF-Connecting-IP", r.Header.Get("CF-Connecting-IP"),
-			"ua", r.UserAgent(),
-			"method", r.Method,
-			"path", r.URL.Path)
-		proxy.ServeHTTP(w, r)
-	}
-}
-
 func Router(r *gin.Engine) {
 	r.GET("/v1/chat/completions", proxy)
 	r.NoRoute(proxy)
@@ -92,7 +80,7 @@ func proxy(c *gin.Context) {
 		"ua", c.Request.UserAgent(),
 		"method", c.Request.Method,
 		"path", c.Request.URL.Path)
-	ProxyRequestHandler(openaiProxy)(c.Writer, c.Request)
+	openaiProxy.ServeHTTP(c.Writer, c.Request)
 }
 
 func chatComplections(c *gin.Context) {
