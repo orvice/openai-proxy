@@ -51,7 +51,7 @@ func modifyRequest(req *http.Request) {
 		if len(arr) == 2 {
 			key = arr[1]
 		}
-		if key == "null" {
+		if key == "null" || strings.Contains(key, "null") {
 			slog.Info(" token is null, using default token")
 			req.Header.Del(authHeader)
 			req.Header.Set(authHeader, "Bearer "+defaultToken)
