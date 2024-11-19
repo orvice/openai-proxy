@@ -5,22 +5,21 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
-	"os"
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/orvice/openapi-proxy/internal/config"
 )
 
 var (
-	defaultToken  string
-	openAIApiAddr = "https://api.openai.com"
-	authHeader    = "Authorization"
-	openaiProxy   *httputil.ReverseProxy
+	authHeader = "Authorization"
+
+	openAIProxy *httputil.ReverseProxy
 )
 
 // NewProxy takes target host and creates a reverse proxy
-func NewProxy(targetHost string) (*httputil.ReverseProxy, error) {
-	url, err := url.Parse(targetHost)
+func NewProxy(conf *config.Config) (*httputil.ReverseProxy, error) {
+	url, err := url.Parse(conf.OpenAIEndpoint)
 	if err != nil {
 		return nil, err
 	}
@@ -30,7 +29,7 @@ func NewProxy(targetHost string) (*httputil.ReverseProxy, error) {
 	originalDirector := proxy.Director
 	proxy.Director = func(req *http.Request) {
 		originalDirector(req)
-		modifyRequest(req)
+		modifyRequest(req, conf)
 	}
 
 	proxy.ModifyResponse = modifyResponse()
@@ -38,11 +37,11 @@ func NewProxy(targetHost string) (*httputil.ReverseProxy, error) {
 	return proxy, nil
 }
 
-func modifyRequest(req *http.Request) {
+func modifyRequest(req *http.Request, conf *config.Config) {
 	//  chekc if auth header is empty
 	if req.Header.Get(authHeader) == "" {
 		slog.Info("no token found, using default token")
-		req.Header.Set(authHeader, "Bearer "+defaultToken)
+		req.Header.Set(authHeader, "Bearer "+conf.OpenAIKey)
 	} else {
 		slog.Info("token found in request")
 		bearerHeader := req.Header.Get(authHeader)
@@ -54,7 +53,7 @@ func modifyRequest(req *http.Request) {
 		if key == "null" || strings.Contains(key, "null") {
 			slog.Info(" token is null, using default token")
 			req.Header.Del(authHeader)
-			req.Header.Set(authHeader, "Bearer "+defaultToken)
+			req.Header.Set(authHeader, "Bearer "+conf.OpenAIKey)
 		}
 	}
 	req.Host = "api.openai.com"
@@ -64,7 +63,6 @@ func modifyRequest(req *http.Request) {
 func errorHandler() func(http.ResponseWriter, *http.Request, error) {
 	return func(w http.ResponseWriter, req *http.Request, err error) {
 		slog.Error("Got error while modifying response", "error", err)
-		return
 	}
 }
 
@@ -75,18 +73,20 @@ func modifyResponse() func(*http.Response) error {
 }
 
 func Router(r *gin.Engine) {
-	r.GET("/v1/chat/completions", proxy)
-	r.NoRoute(proxy)
-}
+	conf, err := config.New()
+	if err != nil {
+		slog.Error("new config error", "error", err)
+		return
+	}
 
-func Init() {
-	defaultToken = os.Getenv("OPENAI_API_KEY")
-	proxy, err := NewProxy(openAIApiAddr)
+	slog.Info("new config", slog.Any("config", conf))
+	openAIProxy, err = NewProxy(conf)
 	if err != nil {
 		slog.Error("new proxy error", "error", err)
 		return
 	}
-	openaiProxy = proxy
+	r.Any("/v1/chat/completions", proxy)
+	r.NoRoute(proxy)
 }
 
 func proxy(c *gin.Context) {
@@ -95,9 +95,8 @@ func proxy(c *gin.Context) {
 		"ua", c.Request.UserAgent(),
 		"method", c.Request.Method,
 		"path", c.Request.URL.Path)
-	openaiProxy.ServeHTTP(c.Writer, c.Request)
+	openAIProxy.ServeHTTP(c.Writer, c.Request)
 }
 
-func chatComplections(c *gin.Context) {
-
+func ChatComplections(c *gin.Context) {
 }

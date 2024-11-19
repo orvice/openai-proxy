@@ -7,7 +7,6 @@ import (
 )
 
 func main() {
-	handler.Init()
 	app := core.New(&app.Config{
 		Service: "openai-proxy",
 		Router:  handler.Router,
