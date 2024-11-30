@@ -56,8 +56,14 @@ func modifyRequest(req *http.Request, conf *config.Config) {
 			req.Header.Set(authHeader, "Bearer "+conf.OpenAIKey)
 		}
 	}
-	req.Host = "api.openai.com"
-	req.Header.Set("Host", "api.openai.com")
+	newUrl, err := url.Parse(conf.OpenAIEndpoint)
+	if err != nil {
+		slog.Error("parse openai endpoint error", "error", err)
+		return
+	}
+	req.Host = newUrl.Host
+	req.URL.Host = newUrl.Host
+	req.Header.Set("Host", newUrl.Host)
 }
 
 func errorHandler() func(http.ResponseWriter, *http.Request, error) {
