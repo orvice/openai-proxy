@@ -65,6 +65,9 @@ func modifyRequest(req *http.Request, conf config.Vendor) {
 	req.Host = newUrl.Host
 	req.URL.Host = newUrl.Host
 	req.Header.Set("Host", newUrl.Host)
+	if newUrl.Path != "" {
+		req.URL.Path = newUrl.Path
+	}
 }
 
 func errorHandler() func(http.ResponseWriter, *http.Request, error) {
