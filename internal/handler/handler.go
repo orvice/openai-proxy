@@ -15,6 +15,7 @@ var (
 	authHeader = "Authorization"
 
 	openAIProxies map[string]*httputil.ReverseProxy
+	defaultProxy  *httputil.ReverseProxy
 )
 
 // NewProxy takes target host and creates a reverse proxy
@@ -94,6 +95,11 @@ func initProxies() {
 		openAIProxies[v.Name] = proxy
 	}
 
+	defaultProxy, err = NewProxy(config.Get().GetDefaultVendor())
+	if err != nil {
+		slog.Error("new proxy error", "error", err)
+		return
+	}
 }
 
 func Router(r *gin.Engine) {
@@ -116,7 +122,7 @@ func proxy(c *gin.Context) {
 	}
 	proxy, ok := openAIProxies[vendor]
 	if !ok {
-		c.JSON(400, gin.H{"error": "invalid model"})
+		defaultProxy.ServeHTTP(c.Writer, c.Request)
 		return
 	}
 	proxy.ServeHTTP(c.Writer, c.Request)
@@ -155,7 +161,7 @@ func ChatComplections(c *gin.Context) {
 
 	proxy, ok := openAIProxies[vendor]
 	if !ok {
-		c.JSON(400, gin.H{"error": "invalid model"})
+		defaultProxy.ServeHTTP(c.Writer, c.Request)
 		return
 	}
 	proxy.ServeHTTP(c.Writer, c.Request)

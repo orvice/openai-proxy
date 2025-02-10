@@ -2,6 +2,7 @@ package config
 
 import (
 	"log/slog"
+	"os"
 
 	"github.com/spf13/viper"
 )
@@ -29,6 +30,17 @@ var (
 	defaultConfig *Config
 )
 
+const (
+	defaultEndpoint = "https://api.openai.com"
+)
+
+func (c Config) GetDefaultVendor() Vendor {
+	return Vendor{
+		Host: defaultEndpoint,
+		Key:  os.Getenv("OPENAI_KEY"),
+	}
+}
+
 func Get() *Config {
 	if defaultConfig == nil {
 		defaultConfig, _ = New()
@@ -55,13 +67,16 @@ func New() (*Config, error) {
 	viper.SetConfigType("yaml")
 	viper.AutomaticEnv()
 
+	var config Config
+
 	// Read configuration file
 	if err := viper.ReadInConfig(); err != nil {
+		slog.Error("read config error", "error", err)
 		return nil, err
 	}
 
-	var config Config
 	if err := viper.Unmarshal(&config); err != nil {
+		slog.Error("read config error", "error", err)
 		return nil, err
 	}
 
