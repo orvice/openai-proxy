@@ -1,37 +1,72 @@
 package config
 
 import (
-	"strings"
+	"log/slog"
 
 	"github.com/spf13/viper"
 )
 
-const (
-	defaultEndpoint = "https://api.openai.com"
-)
-
 type Config struct {
-	OpenAIKey      string `mapstructure:"OPENAI_KEY"`
-	OpenAIEndpoint string `mapstructure:"OPENAI_ENDPOINT"`
-	ModelOverride  string `mapstructure:"MODEL_OVERRIDE"`
+	Models        []Model  `mapstructure:"MODELS"`
+	Vendors       []Vendor `mapstructure:"VENDORS"`
+	DefaultVendor string   `mapstructure:"DEFAULT_VENDOR"`
 }
 
-func New() (*Config, error) {
-	path := "."
-	viper.AddConfigPath(path)
-	viper.SetConfigName("app")
+type Model struct {
+	Name   string
+	Slug   string
+	Vendor string
+}
 
-	viper.SetConfigType("env")
+type Vendor struct {
+	Name string
+	Host string
+	Path string
+	Key  string
+}
+
+var (
+	defaultConfig *Config
+)
+
+func Get() *Config {
+	if defaultConfig == nil {
+		defaultConfig, _ = New()
+	}
+	return defaultConfig
+}
+
+const (
+	defaultConfigPath = "/app/config"
+	configPathEnv     = "CONFIG_PATH"
+)
+
+func New() (*Config, error) {
+	// Get config path from environment variable, fallback to default
+	configPath := viper.GetString(configPathEnv)
+	if configPath == "" {
+		configPath = defaultConfigPath
+	}
+
+	slog.Default().Info("reading config file",
+		"path", configPath)
+
+	viper.SetConfigFile(configPath)
+	viper.SetConfigType("yaml")
 	viper.AutomaticEnv()
-	// viper.ReadInConfig()
-	var config Config
-	err := viper.Unmarshal(&config)
-	if err != nil {
+
+	// Read configuration file
+	if err := viper.ReadInConfig(); err != nil {
 		return nil, err
 	}
-	if config.OpenAIEndpoint == "" {
-		config.OpenAIEndpoint = defaultEndpoint
+
+	var config Config
+	if err := viper.Unmarshal(&config); err != nil {
+		return nil, err
 	}
-	config.OpenAIEndpoint = strings.TrimSuffix(config.OpenAIEndpoint, "/")
+
+	slog.Info("config readed",
+		"config", config)
+
 	return &config, nil
 }

@@ -14,12 +14,12 @@ import (
 var (
 	authHeader = "Authorization"
 
-	openAIProxy *httputil.ReverseProxy
+	openAIProxies map[string]*httputil.ReverseProxy
 )
 
 // NewProxy takes target host and creates a reverse proxy
-func NewProxy(conf *config.Config) (*httputil.ReverseProxy, error) {
-	url, err := url.Parse(conf.OpenAIEndpoint)
+func NewProxy(conf config.Vendor) (*httputil.ReverseProxy, error) {
+	url, err := url.Parse(conf.Host)
 	if err != nil {
 		return nil, err
 	}
@@ -37,11 +37,11 @@ func NewProxy(conf *config.Config) (*httputil.ReverseProxy, error) {
 	return proxy, nil
 }
 
-func modifyRequest(req *http.Request, conf *config.Config) {
+func modifyRequest(req *http.Request, conf config.Vendor) {
 	//  chekc if auth header is empty
 	if req.Header.Get(authHeader) == "" {
 		slog.Info("no token found, using default token")
-		req.Header.Set(authHeader, "Bearer "+conf.OpenAIKey)
+		req.Header.Set(authHeader, "Bearer "+conf.Key)
 	} else {
 		slog.Info("token found in request")
 		bearerHeader := req.Header.Get(authHeader)
@@ -53,10 +53,10 @@ func modifyRequest(req *http.Request, conf *config.Config) {
 		if key == "null" || strings.Contains(key, "null") {
 			slog.Info(" token is null, using default token")
 			req.Header.Del(authHeader)
-			req.Header.Set(authHeader, "Bearer "+conf.OpenAIKey)
+			req.Header.Set(authHeader, "Bearer "+conf.Key)
 		}
 	}
-	newUrl, err := url.Parse(conf.OpenAIEndpoint)
+	newUrl, err := url.Parse(conf.Host)
 	if err != nil {
 		slog.Error("parse openai endpoint error", "error", err)
 		return
@@ -78,19 +78,27 @@ func modifyResponse() func(*http.Response) error {
 	}
 }
 
-func Router(r *gin.Engine) {
+func initProxies() {
 	conf, err := config.New()
 	if err != nil {
 		slog.Error("new config error", "error", err)
 		return
 	}
 
-	slog.Info("new config", slog.Any("config", conf))
-	openAIProxy, err = NewProxy(conf)
-	if err != nil {
-		slog.Error("new proxy error", "error", err)
-		return
+	for _, v := range conf.Vendors {
+		proxy, err := NewProxy(v)
+		if err != nil {
+			slog.Error("new proxy error", "error", err)
+			continue
+		}
+		openAIProxies[v.Name] = proxy
 	}
+
+}
+
+func Router(r *gin.Engine) {
+	initProxies()
+	r.GET("/v1/models", Models)
 	r.Any("/v1/chat/completions", proxy)
 	r.NoRoute(proxy)
 }
@@ -101,8 +109,54 @@ func proxy(c *gin.Context) {
 		"ua", c.Request.UserAgent(),
 		"method", c.Request.Method,
 		"path", c.Request.URL.Path)
-	openAIProxy.ServeHTTP(c.Writer, c.Request)
+
+	vendor := c.Request.Header.Get("x-vendor")
+	if vendor == "" {
+		vendor = config.Get().DefaultVendor
+	}
+	proxy, ok := openAIProxies[vendor]
+	if !ok {
+		c.JSON(400, gin.H{"error": "invalid model"})
+		return
+	}
+	proxy.ServeHTTP(c.Writer, c.Request)
+}
+
+func Models(c *gin.Context) {
+	c.JSON(http.StatusOK, config.Get().Models)
+}
+
+type completionsRequest struct {
+	Model string `json:"model"`
 }
 
 func ChatComplections(c *gin.Context) {
+	var req completionsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+
+	var vendor = config.Get().DefaultVendor
+
+	for _, v := range config.Get().Models {
+		if v.Name == req.Model {
+			vendor = v.Vendor
+		}
+	}
+
+	slog.Info("proxy request",
+		"CF-Connecting-IP", c.Request.Header.Get("CF-Connecting-IP"),
+		"ua", c.Request.UserAgent(),
+		"method", c.Request.Method,
+		"model", req.Model,
+		"vendor", vendor,
+		"path", c.Request.URL.Path)
+
+	proxy, ok := openAIProxies[vendor]
+	if !ok {
+		c.JSON(400, gin.H{"error": "invalid model"})
+		return
+	}
+	proxy.ServeHTTP(c.Writer, c.Request)
 }
