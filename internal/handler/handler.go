@@ -33,7 +33,7 @@ func NewProxy(conf config.Vendor) (*httputil.ReverseProxy, error) {
 	originalDirector := proxy.Director
 	proxy.Director = func(req *http.Request) {
 		originalDirector(req)
-		modifyRequest(req, conf)
+		modifyRequest(req, conf, url)
 	}
 
 	proxy.ModifyResponse = modifyResponse()
@@ -41,7 +41,7 @@ func NewProxy(conf config.Vendor) (*httputil.ReverseProxy, error) {
 	return proxy, nil
 }
 
-func modifyRequest(req *http.Request, conf config.Vendor) {
+func modifyRequest(req *http.Request, conf config.Vendor, newURL *url.URL) {
 	logger := log.FromContext(req.Context())
 	//  chekc if auth header is empty
 	if req.Header.Get(authHeader) == "" {
@@ -61,16 +61,12 @@ func modifyRequest(req *http.Request, conf config.Vendor) {
 			req.Header.Set(authHeader, "Bearer "+conf.Key)
 		}
 	}
-	newUrl, err := url.Parse(conf.Host)
-	if err != nil {
-		logger.Error("parse openai endpoint error", "error", err)
-		return
-	}
-	req.Host = newUrl.Host
-	req.URL.Host = newUrl.Host
-	req.Header.Set("Host", newUrl.Host)
-	if newUrl.Path != "" {
-		req.URL.Path = newUrl.Path + "/chat/completions"
+
+	req.Host = newURL.Host
+	req.URL.Host = newURL.Host
+	req.Header.Set("Host", newURL.Host)
+	if newURL.Path != "" {
+		req.URL.Path = newURL.Path + "/chat/completions"
 		logger.Info("setting request path",
 			"path", req.URL.Path)
 	}
