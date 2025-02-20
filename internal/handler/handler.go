@@ -83,11 +83,7 @@ func modifyResponse() func(*http.Response) error {
 }
 
 func initProxies() {
-	conf, err := config.New()
-	if err != nil {
-		slog.Error("new config error", "error", err)
-		return
-	}
+	conf := config.Conf
 
 	for _, v := range conf.Vendors {
 		proxy, err := NewProxy(v)
@@ -97,8 +93,8 @@ func initProxies() {
 		}
 		openAIProxies[v.Name] = proxy
 	}
-
-	defaultProxy, err = NewProxy(config.Get().GetDefaultVendor())
+	var err error
+	defaultProxy, err = NewProxy(config.Conf.GetDefaultVendor())
 	if err != nil {
 		slog.Error("new proxy error", "error", err)
 		return
@@ -121,7 +117,7 @@ func proxy(c *gin.Context) {
 
 	vendor := c.Request.Header.Get("x-vendor")
 	if vendor == "" {
-		vendor = config.Get().DefaultVendor
+		vendor = config.Conf.DefaultVendor
 	}
 	proxy, ok := openAIProxies[vendor]
 	if !ok {
@@ -132,7 +128,7 @@ func proxy(c *gin.Context) {
 }
 
 func Models(c *gin.Context) {
-	c.JSON(http.StatusOK, config.Get().Models)
+	c.JSON(http.StatusOK, config.Conf.Models)
 }
 
 type completionsRequest struct {
@@ -146,9 +142,9 @@ func ChatComplections(c *gin.Context) {
 		return
 	}
 
-	var vendor = config.Get().DefaultVendor
+	var vendor = config.Conf.DefaultVendor
 
-	for _, v := range config.Get().Models {
+	for _, v := range config.Conf.Models {
 		if v.Name == req.Model {
 			vendor = v.Vendor
 		}
