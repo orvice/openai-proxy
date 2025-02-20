@@ -106,6 +106,8 @@ func initProxies() {
 		modelsMap[regex] = v.Vendor
 	}
 
+	initGeminiProxy()
+
 	var err error
 	defaultProxy, err = NewProxy(config.Conf.GetDefaultVendor())
 	if err != nil {

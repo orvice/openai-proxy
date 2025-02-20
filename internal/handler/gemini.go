@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"log/slog"
+	"net/http"
 	"net/http/httputil"
 	"net/url"
 
@@ -9,14 +11,25 @@ import (
 
 var (
 	geminiEndpoint = "https://generativelanguage.googleapis.com"
+	geminiProxy    *httputil.ReverseProxy
 )
 
 func geminiHandler(c *gin.Context) {
+	geminiProxy.ServeHTTP(c.Writer, c.Request)
+}
+
+func initGeminiProxy() {
 	u, err := url.Parse(geminiEndpoint)
 	if err != nil {
-		c.JSON(400, gin.H{"error": err.Error()})
+		slog.Error("parse url error", "error", err)
 		return
 	}
-	proxy := httputil.NewSingleHostReverseProxy(u)
-	proxy.ServeHTTP(c.Writer, c.Request)
+	geminiProxy = httputil.NewSingleHostReverseProxy(u)
+
+	originalDirector := geminiProxy.Director
+	geminiProxy.Director = func(req *http.Request) {
+		originalDirector(req)
+		req.Host = u.Host
+		req.URL.Host = u.Host
+	}
 }
