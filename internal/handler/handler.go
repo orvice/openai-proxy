@@ -42,12 +42,13 @@ func NewProxy(conf config.Vendor) (*httputil.ReverseProxy, error) {
 }
 
 func modifyRequest(req *http.Request, conf config.Vendor) {
+	logger := log.FromContext(req.Context())
 	//  chekc if auth header is empty
 	if req.Header.Get(authHeader) == "" {
-		slog.Info("no token found, using default token")
+		logger.Info("no token found, using default token")
 		req.Header.Set(authHeader, "Bearer "+conf.Key)
 	} else {
-		slog.Info("token found in request")
+		logger.Info("token found in request")
 		bearerHeader := req.Header.Get(authHeader)
 		arr := strings.Split(bearerHeader, " ")
 		var key string
@@ -55,14 +56,14 @@ func modifyRequest(req *http.Request, conf config.Vendor) {
 			key = arr[1]
 		}
 		if key == "null" || strings.Contains(key, "null") {
-			slog.Info(" token is null, using default token")
+			logger.Info(" token is null, using default token")
 			req.Header.Del(authHeader)
 			req.Header.Set(authHeader, "Bearer "+conf.Key)
 		}
 	}
 	newUrl, err := url.Parse(conf.Host)
 	if err != nil {
-		slog.Error("parse openai endpoint error", "error", err)
+		logger.Error("parse openai endpoint error", "error", err)
 		return
 	}
 	req.Host = newUrl.Host
@@ -70,6 +71,8 @@ func modifyRequest(req *http.Request, conf config.Vendor) {
 	req.Header.Set("Host", newUrl.Host)
 	if newUrl.Path != "" {
 		req.URL.Path = newUrl.Path + "/chat/completions"
+		logger.Info("setting request path",
+			"path", req.URL.Path)
 	}
 }
 
