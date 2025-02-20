@@ -164,6 +164,7 @@ func ChatComplections(c *gin.Context) {
 
 	// Restore request body for proxy
 	if bodyBytes, exists := c.Get(gin.BodyBytesKey); exists {
+		logger.Info("restoring request body", "len", len(bodyBytes.([]byte)))
 		c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes.([]byte)))
 	}
 
