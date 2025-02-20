@@ -16,10 +16,9 @@ import (
 var (
 	authHeader = "Authorization"
 
-	openAIProxies map[string]*httputil.ReverseProxy
-
-	modelsMap    map[*regexp.Regexp]string
-	defaultProxy *httputil.ReverseProxy
+	openAIProxies = make(map[string]*httputil.ReverseProxy)
+	modelsMap     = make(map[*regexp.Regexp]string)
+	defaultProxy  *httputil.ReverseProxy
 )
 
 // NewProxy takes target host and creates a reverse proxy
