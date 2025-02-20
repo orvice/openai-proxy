@@ -119,6 +119,7 @@ func Router(r *gin.Engine) {
 	initProxies()
 	r.GET("/v1/models", Models)
 	r.Any("/v1/chat/completions", proxy)
+	r.Any("//v1beta/models/:model", geminiHandler)
 	r.NoRoute(proxy)
 }
 
@@ -153,6 +154,8 @@ func ChatComplections(c *gin.Context) {
 	logger := log.FromContext(c.Request.Context())
 	var req completionsRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		logger.Error("bind json error",
+			"error", err)
 		c.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
@@ -167,7 +170,7 @@ func ChatComplections(c *gin.Context) {
 		}
 	}
 
-	slog.Info("proxy request",
+	logger.Info("proxy request",
 		"CF-Connecting-IP", c.Request.Header.Get("CF-Connecting-IP"),
 		"ua", c.Request.UserAgent(),
 		"method", c.Request.Method,
