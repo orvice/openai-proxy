@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"bytes"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httputil"
@@ -158,6 +160,12 @@ func ChatComplections(c *gin.Context) {
 			"error", err)
 		c.JSON(400, gin.H{"error": err.Error()})
 		return
+	}
+
+	// Restore request body for proxy
+	if bodyBytes, exists := c.Get(gin.BodyBytesKey); exists {
+		logger.Info("restoring request body", "len", len(bodyBytes.([]byte)))
+		c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes.([]byte)))
 	}
 
 	var vendor = config.Conf.DefaultVendor
