@@ -119,8 +119,8 @@ func initProxies() {
 func Router(r *gin.Engine) {
 	initProxies()
 	r.GET("/v1/models", Models)
-	r.Any("/v1/chat/completions", proxy)
-	r.Any("//v1beta/models/:model", geminiHandler)
+	r.Any("/v1/chat/completions", ChatComplections)
+	r.Any("/v1beta/models/:model", geminiHandler)
 	r.NoRoute(proxy)
 }
 
