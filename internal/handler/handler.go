@@ -5,8 +5,10 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"regexp"
 	"strings"
 
+	"butterfly.orx.me/core/log"
 	"github.com/gin-gonic/gin"
 	"github.com/orvice/openapi-proxy/internal/config"
 )
@@ -15,7 +17,9 @@ var (
 	authHeader = "Authorization"
 
 	openAIProxies map[string]*httputil.ReverseProxy
-	defaultProxy  *httputil.ReverseProxy
+
+	modelsMap    map[*regexp.Regexp]string
+	defaultProxy *httputil.ReverseProxy
 )
 
 // NewProxy takes target host and creates a reverse proxy
@@ -66,7 +70,7 @@ func modifyRequest(req *http.Request, conf config.Vendor) {
 	req.URL.Host = newUrl.Host
 	req.Header.Set("Host", newUrl.Host)
 	if newUrl.Path != "" {
-		req.URL.Path = newUrl.Path
+		req.URL.Path = newUrl.Path + "/chat/completions"
 	}
 }
 
@@ -93,6 +97,16 @@ func initProxies() {
 		}
 		openAIProxies[v.Name] = proxy
 	}
+
+	for _, v := range conf.Models {
+		regex, err := regexp.Compile(v.Regex)
+		if err != nil {
+			slog.Error("compile regex error", "error", err)
+			continue
+		}
+		modelsMap[regex] = v.Vendor
+	}
+
 	var err error
 	defaultProxy, err = NewProxy(config.Conf.GetDefaultVendor())
 	if err != nil {
@@ -136,6 +150,7 @@ type completionsRequest struct {
 }
 
 func ChatComplections(c *gin.Context) {
+	logger := log.FromContext(c.Request.Context())
 	var req completionsRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(400, gin.H{"error": err.Error()})
@@ -144,9 +159,11 @@ func ChatComplections(c *gin.Context) {
 
 	var vendor = config.Conf.DefaultVendor
 
-	for _, v := range config.Conf.Models {
-		if v.Name == req.Model {
-			vendor = v.Vendor
+	for k, v := range modelsMap {
+		if k.MatchString(req.Model) {
+			logger.Info("model matched",
+				"model", req.Model, "vendor", v)
+			vendor = v
 		}
 	}
 

@@ -9,9 +9,9 @@ var (
 )
 
 type Config struct {
-	Models        []Model  `mapstructure:"MODELS"`
-	Vendors       []Vendor `mapstructure:"VENDORS"`
-	DefaultVendor string   `mapstructure:"DEFAULT_VENDOR"`
+	Models        []Model  `yaml:"models"`
+	Vendors       []Vendor `yaml:"vendors"`
+	DefaultVendor string   `yaml:"defaultVendor"`
 }
 
 func (Config) Print() {
@@ -19,6 +19,7 @@ func (Config) Print() {
 
 type Model struct {
 	Name   string
+	Regex  string
 	Slug   string
 	Vendor string
 }
@@ -26,7 +27,6 @@ type Model struct {
 type Vendor struct {
 	Name string
 	Host string
-	Path string
 	Key  string
 }
 
