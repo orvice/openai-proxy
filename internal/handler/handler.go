@@ -144,8 +144,34 @@ func proxy(c *gin.Context) {
 	proxy.ServeHTTP(c.Writer, c.Request)
 }
 
+type ModelList struct {
+	Object string        `json:"object"`
+	Data   []ModelObject `json:"data"`
+}
+
+type ModelObject struct {
+	ID      string `json:"id"`
+	Object  string `json:"object"`
+	Created int64  `json:"created"`
+	OwnedBy string `json:"owned_by"`
+}
+
 func Models(c *gin.Context) {
-	c.JSON(http.StatusOK, config.Conf.Models)
+	var modelObjects []ModelObject
+	for _, m := range config.Conf.Models {
+		modelObjects = append(modelObjects, ModelObject{
+			ID:      m.Name,
+			Object:  "model",
+			Created: 1686935002,
+			OwnedBy: "organization-owner",
+		})
+	}
+
+	response := ModelList{
+		Object: "list",
+		Data:   modelObjects,
+	}
+	c.JSON(http.StatusOK, response)
 }
 
 type completionsRequest struct {
