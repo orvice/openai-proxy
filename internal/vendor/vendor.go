@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"math/rand"
 	"net/http"
 	"net/http/httputil"
@@ -42,6 +43,15 @@ func NewVender(conf config.Vendor) *Vender {
 	go v.periodicKeyCheck()
 
 	return v
+}
+
+// maskKey returns a masked version of the API key for logging purposes
+func maskKey(key string) string {
+	if len(key) <= 8 {
+		return "****"
+	}
+	
+	return key[:4] + "..." + key[len(key)-4:]
 }
 
 func (v *Vender) ReverseProxy() (*httputil.ReverseProxy, error) {
@@ -83,25 +93,56 @@ func (v *Vender) ReverseProxy() (*httputil.ReverseProxy, error) {
 
 // RefreshValidKeys checks all keys in the keys list and updates the validKeys slice
 func (v *Vender) RefreshValidKeys() {
-	// Check the main key first
-	validKeys := make([]string, 0)
-	if v.conf.Key != "" && v.checkKey(v.conf.Key) {
-		validKeys = append(validKeys, v.conf.Key)
+	slog.Info("Refreshing valid keys", "vendor", v.conf.Name, "vendor_type", v.GetVendorType())
+	
+	// Collect all keys to check
+	keysToCheck := make([]string, 0)
+	
+	// Add the main key if not empty
+	if v.conf.Key != "" {
+		keysToCheck = append(keysToCheck, v.conf.Key)
 	}
-
-	// Check all keys in the keys list
-	for _, key := range v.conf.Keys {
-		if key != "" && v.checkKey(key) {
+	
+	// Add additional keys from the list
+	keysToCheck = append(keysToCheck, v.conf.Keys...)
+	
+	// Check each key and collect valid ones
+	validKeys := make([]string, 0)
+	for _, key := range keysToCheck {
+		if key == "" {
+			continue // Skip empty keys
+		}
+		
+		isValid, err := v.checkKey(key)
+		
+		// Create a masked key for logging (show only first 4 and last 4 characters)
+		maskedKey := maskKey(key)
+		
+		if err != nil {
+			slog.Error("Error checking API key", 
+				"vendor", v.conf.Name, 
+				"key", maskedKey, 
+				"error", err)
+			continue
+		}
+		
+		if isValid {
 			validKeys = append(validKeys, key)
+			slog.Debug("Valid API key found", "vendor", v.conf.Name, "key", maskedKey)
+		} else {
+			slog.Warn("Invalid API key detected", "vendor", v.conf.Name, "key", maskedKey)
 		}
 	}
-
+	
 	// Update the valid keys list with lock protection
 	v.mutex.Lock()
 	v.validKeys = validKeys
 	v.mutex.Unlock()
-
-	fmt.Printf("Found %d valid API keys\n", len(validKeys))
+	
+	slog.Info("Completed refreshing valid keys", 
+		"vendor", v.conf.Name, 
+		"valid_keys", len(validKeys), 
+		"total_keys", len(keysToCheck))
 }
 
 // periodicKeyCheck runs a background routine to check keys periodically
@@ -109,6 +150,8 @@ func (v *Vender) periodicKeyCheck() {
 	ticker := time.NewTicker(15 * time.Minute)
 	defer ticker.Stop()
 
+	slog.Info("Started periodic key check for vendor", "vendor", v.conf.Name, "interval", "15m")
+	
 	for range ticker.C {
 		v.RefreshValidKeys()
 	}
@@ -178,7 +221,7 @@ func (v *Vender) GetVendorType() VendorType {
 	return VendorTypeOpenAI
 }
 
-func (v *Vender) checkKey(key string) bool {
+func (v *Vender) checkKey(key string) (bool, error) {
 	// Create a context with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
 	defer cancel()
@@ -199,12 +242,11 @@ func (v *Vender) checkKey(key string) bool {
 }
 
 // checkOpenAIKey validates an OpenAI API key
-func (v *Vender) checkOpenAIKey(ctx context.Context, client *http.Client, key string) bool {
+func (v *Vender) checkOpenAIKey(ctx context.Context, client *http.Client, key string) (bool, error) {
 	// Prepare the request to the models endpoint with context
 	req, err := http.NewRequestWithContext(ctx, "GET", "https://api.openai.com/v1/models", nil)
 	if err != nil {
-		fmt.Printf("Error creating OpenAI request: %v\n", err)
-		return false
+		return false, fmt.Errorf("error creating OpenAI request: %w", err)
 	}
 
 	// Set the API key in the Authorization header
@@ -213,21 +255,23 @@ func (v *Vender) checkOpenAIKey(ctx context.Context, client *http.Client, key st
 	// Send the request
 	res, err := client.Do(req)
 	if err != nil {
-		fmt.Printf("Error making OpenAI request: %v\n", err)
-		return false
+		return false, fmt.Errorf("error making OpenAI request: %w", err)
 	}
 	defer res.Body.Close()
 
 	// Check if the response status code indicates success
 	if res.StatusCode == http.StatusOK {
-		return true
+		return true, nil
 	}
 
 	// Read the error response for debugging purposes
 	body, _ := io.ReadAll(res.Body)
-	fmt.Printf("OpenAI API key validation failed with status %d: %s\n", res.StatusCode, string(body))
+	slog.Debug("OpenAI API key validation failed", 
+		"vendor", v.conf.Name, 
+		"status", res.StatusCode, 
+		"response", string(body))
 
-	return false
+	return false, nil // Key is invalid, but not an error
 }
 
 // SiliconFlowUserInfo represents the response structure from SiliconFlow API
@@ -248,12 +292,11 @@ type SiliconFlowUserInfo struct {
 }
 
 // checkSiliconFlowKey validates a SiliconFlow API key by checking account balance
-func (v *Vender) checkSiliconFlowKey(ctx context.Context, client *http.Client, key string) bool {
+func (v *Vender) checkSiliconFlowKey(ctx context.Context, client *http.Client, key string) (bool, error) {
 	// Prepare the request to the user info endpoint
 	req, err := http.NewRequestWithContext(ctx, "GET", "https://api.siliconflow.cn/v1/user/info", nil)
 	if err != nil {
-		fmt.Printf("Error creating SiliconFlow request: %v\n", err)
-		return false
+		return false, fmt.Errorf("error creating SiliconFlow request: %w", err)
 	}
 
 	// Set the API key in the Authorization header
@@ -262,44 +305,48 @@ func (v *Vender) checkSiliconFlowKey(ctx context.Context, client *http.Client, k
 	// Send the request
 	res, err := client.Do(req)
 	if err != nil {
-		fmt.Printf("Error making SiliconFlow request: %v\n", err)
-		return false
+		return false, fmt.Errorf("error making SiliconFlow request: %w", err)
 	}
 	defer res.Body.Close()
 
 	// If not successful response, key is invalid
 	if res.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(res.Body)
-		fmt.Printf("SiliconFlow API key validation failed with status %d: %s\n", res.StatusCode, string(body))
-		return false
+		slog.Debug("SiliconFlow API key validation failed", 
+			"vendor", v.conf.Name, 
+			"status", res.StatusCode, 
+			"response", string(body))
+		return false, nil
 	}
 
 	// Parse the response body
 	var userInfo SiliconFlowUserInfo
 	body, _ := io.ReadAll(res.Body)
 	if err := json.Unmarshal(body, &userInfo); err != nil {
-		fmt.Printf("Error parsing SiliconFlow response: %v\n", err)
-		return false
+		return false, fmt.Errorf("error parsing SiliconFlow response: %w", err)
 	}
 
 	// Check account status and balance
 	if !userInfo.Status || userInfo.Data.Status != "normal" {
-		fmt.Printf("SiliconFlow account status is not normal: %s\n", userInfo.Data.Status)
-		return false
+		slog.Debug("SiliconFlow account status is not normal", 
+			"vendor", v.conf.Name, 
+			"status", userInfo.Data.Status)
+		return false, nil
 	}
 
 	// Convert total balance to float and check if greater than 0
 	totalBalance, err := strconv.ParseFloat(userInfo.Data.TotalBalance, 64)
 	if err != nil {
-		fmt.Printf("Error parsing SiliconFlow total balance: %v\n", err)
-		return false
+		return false, fmt.Errorf("error parsing SiliconFlow total balance: %w", err)
 	}
 
 	// Check if balance is sufficient
 	if totalBalance <= 0 {
-		fmt.Printf("SiliconFlow account has insufficient balance: %s\n", userInfo.Data.TotalBalance)
-		return false
+		slog.Debug("SiliconFlow account has insufficient balance", 
+			"vendor", v.conf.Name, 
+			"balance", userInfo.Data.TotalBalance)
+		return false, nil
 	}
 
-	return true
+	return true, nil
 }

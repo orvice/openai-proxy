@@ -5,6 +5,7 @@ import (
 	"net/http/httputil"
 	"regexp"
 	"sync"
+	"time"
 
 	"github.com/orvice/openapi-proxy/internal/config"
 )
@@ -94,6 +95,9 @@ func (m *VendorManager) Initialize() error {
 	}
 	slog.Info("initialized default proxy")
 	
+	// Start the periodic key validation task
+	go m.StartRefreshKeysTask()
+	
 	return nil
 }
 
@@ -154,4 +158,52 @@ func (m *VendorManager) GetVendorForModel(modelName string) string {
 func (m *VendorManager) GetProxyForModel(modelName string) *httputil.ReverseProxy {
 	vendorName := m.GetVendorForModel(modelName)
 	return m.GetProxyForVendor(vendorName)
+}
+
+// RefreshAllKeys refreshes the valid keys for all vendors
+func (m *VendorManager) RefreshAllKeys() {
+	m.mutex.RLock()
+	vendors := make([]*Vender, 0, len(m.Vendors))
+	
+	// Collect all vendors first to avoid holding the lock during key validation
+	for _, vender := range m.Vendors {
+		vendors = append(vendors, vender)
+	}
+	
+	// Add default vendor if it's not already included
+	defaultVendorIncluded := false
+	for _, v := range vendors {
+		if v == m.DefaultVendor {
+			defaultVendorIncluded = true
+			break
+		}
+	}
+	if !defaultVendorIncluded && m.DefaultVendor != nil {
+		vendors = append(vendors, m.DefaultVendor)
+	}
+	m.mutex.RUnlock()
+
+	// Refresh keys for each vendor
+	slog.Info("Starting validation for all vendor keys", "vendor_count", len(vendors))
+	for _, vender := range vendors {
+		vender.RefreshValidKeys()
+	}
+	slog.Info("Completed validation for all vendor keys")
+}
+
+// StartRefreshKeysTask starts a background task to periodically refresh all vendor keys
+func (m *VendorManager) StartRefreshKeysTask() {
+	// Initial refresh immediately after startup
+	m.RefreshAllKeys()
+	
+	// Set up a ticker to periodically refresh all keys
+	ticker := time.NewTicker(10 * time.Minute)
+	slog.Info("Started scheduled task for refreshing vendor API keys", "interval", "10m")
+	
+	go func() {
+		defer ticker.Stop()
+		for range ticker.C {
+			m.RefreshAllKeys()
+		}
+	}()
 }
