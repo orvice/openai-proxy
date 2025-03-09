@@ -31,6 +31,8 @@ var (
 )
 
 func NewVender(conf config.Vendor) *Vender {
+	slog.Info("Creating new vendor instance", "vendor", conf.Name, "host", conf.Host)
+
 	v := &Vender{
 		conf:      conf,
 		validKeys: make([]string, 0),
@@ -42,6 +44,7 @@ func NewVender(conf config.Vendor) *Vender {
 	// Start a goroutine to periodically check keys
 	go v.periodicKeyCheck()
 
+	slog.Info("Vendor instance created successfully", "vendor", conf.Name)
 	return v
 }
 
@@ -50,14 +53,17 @@ func maskKey(key string) string {
 	if len(key) <= 8 {
 		return "****"
 	}
-	
+
 	return key[:4] + "..." + key[len(key)-4:]
 }
 
 func (v *Vender) ReverseProxy() (*httputil.ReverseProxy, error) {
+	slog.Debug("Creating reverse proxy", "vendor", v.conf.Name, "host", v.conf.Host)
+
 	// Parse the host URL
 	url, err := url.Parse(v.conf.Host)
 	if err != nil {
+		slog.Error("Failed to parse vendor host", "vendor", v.conf.Name, "host", v.conf.Host, "error", err)
 		return nil, fmt.Errorf("failed to parse vendor host: %w", err)
 	}
 
@@ -78,54 +84,64 @@ func (v *Vender) ReverseProxy() (*httputil.ReverseProxy, error) {
 
 	// Set up response modification (if needed)
 	proxy.ModifyResponse = func(resp *http.Response) error {
+		slog.Debug("Proxy response received",
+			"vendor", v.conf.Name,
+			"status", resp.StatusCode,
+			"content_length", resp.ContentLength)
 		return nil // No modifications needed for now
 	}
 
 	// Set up error handling
 	proxy.ErrorHandler = func(w http.ResponseWriter, req *http.Request, err error) {
-		fmt.Printf("Proxy error: %v\n", err)
+		slog.Error("Proxy error occurred",
+			"vendor", v.conf.Name,
+			"path", req.URL.Path,
+			"method", req.Method,
+			"error", err)
+
 		w.WriteHeader(http.StatusBadGateway)
 		w.Write([]byte(fmt.Sprintf(`{"error": {"message": "Proxy error: %v", "type": "proxy_error"}}`, err)))
 	}
 
+	slog.Info("Reverse proxy created successfully", "vendor", v.conf.Name, "target_host", url.Host)
 	return proxy, nil
 }
 
 // RefreshValidKeys checks all keys in the keys list and updates the validKeys slice
 func (v *Vender) RefreshValidKeys() {
 	slog.Info("Refreshing valid keys", "vendor", v.conf.Name, "vendor_type", v.GetVendorType())
-	
+
 	// Collect all keys to check
 	keysToCheck := make([]string, 0)
-	
+
 	// Add the main key if not empty
 	if v.conf.Key != "" {
 		keysToCheck = append(keysToCheck, v.conf.Key)
 	}
-	
+
 	// Add additional keys from the list
 	keysToCheck = append(keysToCheck, v.conf.Keys...)
-	
+
 	// Check each key and collect valid ones
 	validKeys := make([]string, 0)
 	for _, key := range keysToCheck {
 		if key == "" {
 			continue // Skip empty keys
 		}
-		
+
 		isValid, err := v.checkKey(key)
-		
+
 		// Create a masked key for logging (show only first 4 and last 4 characters)
 		maskedKey := maskKey(key)
-		
+
 		if err != nil {
-			slog.Error("Error checking API key", 
-				"vendor", v.conf.Name, 
-				"key", maskedKey, 
+			slog.Error("Error checking API key",
+				"vendor", v.conf.Name,
+				"key", maskedKey,
 				"error", err)
 			continue
 		}
-		
+
 		if isValid {
 			validKeys = append(validKeys, key)
 			slog.Debug("Valid API key found", "vendor", v.conf.Name, "key", maskedKey)
@@ -133,15 +149,15 @@ func (v *Vender) RefreshValidKeys() {
 			slog.Warn("Invalid API key detected", "vendor", v.conf.Name, "key", maskedKey)
 		}
 	}
-	
+
 	// Update the valid keys list with lock protection
 	v.mutex.Lock()
 	v.validKeys = validKeys
 	v.mutex.Unlock()
-	
-	slog.Info("Completed refreshing valid keys", 
-		"vendor", v.conf.Name, 
-		"valid_keys", len(validKeys), 
+
+	slog.Info("Completed refreshing valid keys",
+		"vendor", v.conf.Name,
+		"valid_keys", len(validKeys),
 		"total_keys", len(keysToCheck))
 }
 
@@ -151,25 +167,38 @@ func (v *Vender) periodicKeyCheck() {
 	defer ticker.Stop()
 
 	slog.Info("Started periodic key check for vendor", "vendor", v.conf.Name, "interval", "15m")
-	
+
 	for range ticker.C {
 		v.RefreshValidKeys()
 	}
 }
 
 func (v *Vender) GetHost() string {
+	slog.Debug("Getting vendor host", "vendor", v.conf.Name, "host", v.conf.Host)
 	return v.conf.Host
 }
 
 // modifyProxyRequest modifies the incoming request before forwarding it to the target host
 func (v *Vender) modifyProxyRequest(req *http.Request, targetURL *url.URL) {
+	slog.Debug("Modifying proxy request",
+		"vendor", v.conf.Name,
+		"method", req.Method,
+		"path", req.URL.Path,
+		"target_host", targetURL.Host)
+
 	// Check if authorization header is empty or contains "null"
 	authHeader := req.Header.Get("Authorization")
 	if authHeader == "" || strings.Contains(authHeader, "null") {
 		// Use a valid API key from our validated keys
 		key := v.GetKey()
+		maskedKey := maskKey(key)
 		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", key))
-		fmt.Printf("Using vendor API key for request to %s\n", req.URL.Path)
+		slog.Info("Using vendor API key for request",
+			"vendor", v.conf.Name,
+			"path", req.URL.Path,
+			"key", maskedKey)
+	} else {
+		slog.Debug("Using provided authorization header", "vendor", v.conf.Name)
 	}
 
 	// Set the proper host
@@ -182,26 +211,50 @@ func (v *Vender) modifyProxyRequest(req *http.Request, targetURL *url.URL) {
 		// If the path doesn't already have /chat/completions and it's SiliconFlow,
 		// we'll add it (following the pattern seen in the handler)
 		if targetURL.Path != "" {
+			originalPath := req.URL.Path
 			req.URL.Path = targetURL.Path + "/chat/completions"
+			slog.Info("Adjusted request path for SiliconFlow",
+				"vendor", v.conf.Name,
+				"original_path", originalPath,
+				"new_path", req.URL.Path)
 		}
 	}
+
+	slog.Debug("Request modification complete",
+		"vendor", v.conf.Name,
+		"final_path", req.URL.Path,
+		"final_host", req.Host)
 }
 
 func (v *Vender) GetKey() string {
 	v.mutex.RLock()
 	defer v.mutex.RUnlock()
 
+	// If no additional keys are configured, return the main key
+	if len(v.conf.Keys) == 0 {
+		return v.conf.Key
+	}
+
 	// If no valid keys are available, return the main key even if it's invalid
 	if len(v.validKeys) == 0 {
+		slog.Warn("No valid keys available, using default key",
+			"vendor", v.conf.Name,
+			"key", maskKey(v.conf.Key))
 		return v.conf.Key
 	}
 
 	// Return a random valid key using the thread-safe approach
 	rngMutex.Lock()
 	index := rng.Intn(len(v.validKeys))
+	selectedKey := v.validKeys[index]
 	rngMutex.Unlock()
 
-	return v.validKeys[index]
+	slog.Debug("Selected valid key for request",
+		"vendor", v.conf.Name,
+		"key", maskKey(selectedKey),
+		"valid_key_count", len(v.validKeys))
+
+	return selectedKey
 }
 
 // VendorType represents the type of API vendor
@@ -215,10 +268,16 @@ const (
 // Returns the vendor type based on the host
 func (v *Vender) GetVendorType() VendorType {
 	host := strings.ToLower(v.conf.Host)
+	var vendorType VendorType
+
 	if strings.Contains(host, "siliconflow") {
-		return VendorTypeSiliconFlow
+		vendorType = VendorTypeSiliconFlow
+	} else {
+		vendorType = VendorTypeOpenAI
 	}
-	return VendorTypeOpenAI
+
+	slog.Debug("Determined vendor type", "vendor", v.conf.Name, "host", host, "type", vendorType)
+	return vendorType
 }
 
 func (v *Vender) checkKey(key string) (bool, error) {
@@ -266,9 +325,9 @@ func (v *Vender) checkOpenAIKey(ctx context.Context, client *http.Client, key st
 
 	// Read the error response for debugging purposes
 	body, _ := io.ReadAll(res.Body)
-	slog.Debug("OpenAI API key validation failed", 
-		"vendor", v.conf.Name, 
-		"status", res.StatusCode, 
+	slog.Debug("OpenAI API key validation failed",
+		"vendor", v.conf.Name,
+		"status", res.StatusCode,
 		"response", string(body))
 
 	return false, nil // Key is invalid, but not an error
@@ -312,9 +371,9 @@ func (v *Vender) checkSiliconFlowKey(ctx context.Context, client *http.Client, k
 	// If not successful response, key is invalid
 	if res.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(res.Body)
-		slog.Debug("SiliconFlow API key validation failed", 
-			"vendor", v.conf.Name, 
-			"status", res.StatusCode, 
+		slog.Debug("SiliconFlow API key validation failed",
+			"vendor", v.conf.Name,
+			"status", res.StatusCode,
 			"response", string(body))
 		return false, nil
 	}
@@ -328,8 +387,8 @@ func (v *Vender) checkSiliconFlowKey(ctx context.Context, client *http.Client, k
 
 	// Check account status and balance
 	if !userInfo.Status || userInfo.Data.Status != "normal" {
-		slog.Debug("SiliconFlow account status is not normal", 
-			"vendor", v.conf.Name, 
+		slog.Debug("SiliconFlow account status is not normal",
+			"vendor", v.conf.Name,
 			"status", userInfo.Data.Status)
 		return false, nil
 	}
@@ -342,8 +401,8 @@ func (v *Vender) checkSiliconFlowKey(ctx context.Context, client *http.Client, k
 
 	// Check if balance is sufficient
 	if totalBalance <= 0 {
-		slog.Debug("SiliconFlow account has insufficient balance", 
-			"vendor", v.conf.Name, 
+		slog.Debug("SiliconFlow account has insufficient balance",
+			"vendor", v.conf.Name,
 			"balance", userInfo.Data.TotalBalance)
 		return false, nil
 	}
