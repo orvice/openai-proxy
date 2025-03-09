@@ -1,0 +1,6 @@
+runner:
+  golangci:
+    cmd: golangci-lint run -c=./.golangci.yml --out-format=line-number ./... --timeout 3m
+    errorformat:
+      - "%f:%l:%c: %m"
+    level: warning
