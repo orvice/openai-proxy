@@ -5,120 +5,38 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"net/http/httputil"
-	"net/url"
-	"regexp"
-	"strings"
 
 	"butterfly.orx.me/core/log"
 	"github.com/gin-gonic/gin"
 	"github.com/orvice/openapi-proxy/internal/config"
+	"github.com/orvice/openapi-proxy/internal/vendor"
 )
 
 var (
 	authHeader = "Authorization"
-
-	openAIProxies = make(map[string]*httputil.ReverseProxy)
-	modelsMap     = make(map[*regexp.Regexp]string)
-	defaultProxy  *httputil.ReverseProxy
+	
+	// VendorManager instance
+	vendorManager *vendor.VendorManager
 )
 
-// NewProxy takes target host and creates a reverse proxy
-func NewProxy(conf config.Vendor) (*httputil.ReverseProxy, error) {
-	url, err := url.Parse(conf.Host)
+// These functions are no longer needed as they are now part of the vendor.Vender implementation
+
+func initVendorManager() {
+	// Create a new vendor manager with the configuration
+	vendorManager = vendor.NewVendorManager(config.Conf)
+	
+	// Initialize the vendor manager
+	err := vendorManager.Initialize()
 	if err != nil {
-		return nil, err
+		slog.Error("Failed to initialize vendor manager", "error", err)
 	}
-
-	proxy := httputil.NewSingleHostReverseProxy(url)
-
-	originalDirector := proxy.Director
-	proxy.Director = func(req *http.Request) {
-		originalDirector(req)
-		modifyRequest(req, conf, url)
-	}
-
-	proxy.ModifyResponse = modifyResponse()
-	proxy.ErrorHandler = errorHandler()
-	return proxy, nil
-}
-
-func modifyRequest(req *http.Request, conf config.Vendor, newURL *url.URL) {
-	logger := log.FromContext(req.Context())
-	//  chekc if auth header is empty
-	if req.Header.Get(authHeader) == "" {
-		logger.Info("no token found, using default token")
-		req.Header.Set(authHeader, "Bearer "+conf.Key)
-	} else {
-		logger.Info("token found in request")
-		bearerHeader := req.Header.Get(authHeader)
-		arr := strings.Split(bearerHeader, " ")
-		var key string
-		if len(arr) == 2 {
-			key = arr[1]
-		}
-		if key == "null" || strings.Contains(key, "null") {
-			logger.Info(" token is null, using default token")
-			req.Header.Del(authHeader)
-			req.Header.Set(authHeader, "Bearer "+conf.Key)
-		}
-	}
-
-	req.Host = newURL.Host
-	req.URL.Host = newURL.Host
-	req.Header.Set("Host", newURL.Host)
-	if newURL.Path != "" {
-		req.URL.Path = newURL.Path + "/chat/completions"
-		logger.Info("setting request path",
-			"path", req.URL.Path)
-	}
-}
-
-func errorHandler() func(http.ResponseWriter, *http.Request, error) {
-	return func(w http.ResponseWriter, req *http.Request, err error) {
-		slog.Error("Got error while modifying response", "error", err)
-	}
-}
-
-func modifyResponse() func(*http.Response) error {
-	return func(resp *http.Response) error {
-		return nil
-	}
-}
-
-func initProxies() {
-	conf := config.Conf
-
-	for _, v := range conf.Vendors {
-		proxy, err := NewProxy(v)
-		if err != nil {
-			slog.Error("new proxy error", "error", err)
-			continue
-		}
-		openAIProxies[v.Name] = proxy
-	}
-
-	for _, v := range conf.Models {
-		regex, err := regexp.Compile(v.Regex)
-		if err != nil {
-			slog.Error("compile regex error", "error", err)
-			continue
-		}
-		modelsMap[regex] = v.Vendor
-	}
-
+	
+	// Still initialize Gemini separately since it's not part of the vendor manager yet
 	initGeminiProxy()
-
-	var err error
-	defaultProxy, err = NewProxy(config.Conf.GetDefaultVendor())
-	if err != nil {
-		slog.Error("new proxy error", "error", err)
-		return
-	}
 }
 
 func Router(r *gin.Engine) {
-	initProxies()
+	initVendorManager()
 	r.GET("/v1/models", Models)
 	r.Any("/v1/chat/completions", ChatComplections)
 	r.Any("/v1beta/models/:model", geminiHandler)
@@ -132,15 +50,12 @@ func proxy(c *gin.Context) {
 		"method", c.Request.Method,
 		"path", c.Request.URL.Path)
 
-	vendor := c.Request.Header.Get("x-vendor")
-	if vendor == "" {
-		vendor = config.Conf.DefaultVendor
-	}
-	proxy, ok := openAIProxies[vendor]
-	if !ok {
-		defaultProxy.ServeHTTP(c.Writer, c.Request)
-		return
-	}
+	vendorName := c.Request.Header.Get("x-vendor")
+	
+	// Get the proxy for the specified vendor
+	proxy := vendorManager.GetProxyForVendor(vendorName)
+	
+	// Serve the request using the proxy
 	proxy.ServeHTTP(c.Writer, c.Request)
 }
 
@@ -194,28 +109,18 @@ func ChatComplections(c *gin.Context) {
 		c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes.([]byte)))
 	}
 
-	var vendor = config.Conf.DefaultVendor
-
-	for k, v := range modelsMap {
-		if k.MatchString(req.Model) {
-			logger.Info("model matched",
-				"model", req.Model, "vendor", v)
-			vendor = v
-		}
-	}
+	// Get the appropriate vendor for the model
+	vendorName := vendorManager.GetVendorForModel(req.Model)
 
 	logger.Info("proxy request",
 		"CF-Connecting-IP", c.Request.Header.Get("CF-Connecting-IP"),
 		"ua", c.Request.UserAgent(),
 		"method", c.Request.Method,
 		"model", req.Model,
-		"vendor", vendor,
+		"vendor", vendorName,
 		"path", c.Request.URL.Path)
 
-	proxy, ok := openAIProxies[vendor]
-	if !ok {
-		defaultProxy.ServeHTTP(c.Writer, c.Request)
-		return
-	}
+	// Get the proxy for the vendor and serve the request
+	proxy := vendorManager.GetProxyForModel(req.Model)
 	proxy.ServeHTTP(c.Writer, c.Request)
 }

@@ -7,6 +7,8 @@ import (
 	"io"
 	"math/rand"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -16,30 +18,67 @@ import (
 )
 
 type Vender struct {
-	conf config.Vendor
+	conf      config.Vendor
 	validKeys []string
 	mutex     sync.RWMutex
 }
 
 // Global random source with proper seeding
 var (
-	rng = rand.New(rand.NewSource(time.Now().UnixNano()))
+	rng      = rand.New(rand.NewSource(time.Now().UnixNano()))
 	rngMutex sync.Mutex
 )
 
 func NewVender(conf config.Vendor) *Vender {
 	v := &Vender{
-		conf: conf,
+		conf:      conf,
 		validKeys: make([]string, 0),
 	}
-	
+
 	// Initialize by checking all keys
 	v.RefreshValidKeys()
-	
+
 	// Start a goroutine to periodically check keys
 	go v.periodicKeyCheck()
-	
+
 	return v
+}
+
+func (v *Vender) ReverseProxy() (*httputil.ReverseProxy, error) {
+	// Parse the host URL
+	url, err := url.Parse(v.conf.Host)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse vendor host: %w", err)
+	}
+
+	// Create a new reverse proxy
+	proxy := httputil.NewSingleHostReverseProxy(url)
+
+	// Store the original director for request modification
+	originalDirector := proxy.Director
+
+	// Create a new director function that modifies the request
+	proxy.Director = func(req *http.Request) {
+		// Call the original director first
+		originalDirector(req)
+
+		// Modify the request
+		v.modifyProxyRequest(req, url)
+	}
+
+	// Set up response modification (if needed)
+	proxy.ModifyResponse = func(resp *http.Response) error {
+		return nil // No modifications needed for now
+	}
+
+	// Set up error handling
+	proxy.ErrorHandler = func(w http.ResponseWriter, req *http.Request, err error) {
+		fmt.Printf("Proxy error: %v\n", err)
+		w.WriteHeader(http.StatusBadGateway)
+		w.Write([]byte(fmt.Sprintf(`{"error": {"message": "Proxy error: %v", "type": "proxy_error"}}`, err)))
+	}
+
+	return proxy, nil
 }
 
 // RefreshValidKeys checks all keys in the keys list and updates the validKeys slice
@@ -49,19 +88,19 @@ func (v *Vender) RefreshValidKeys() {
 	if v.conf.Key != "" && v.checkKey(v.conf.Key) {
 		validKeys = append(validKeys, v.conf.Key)
 	}
-	
+
 	// Check all keys in the keys list
 	for _, key := range v.conf.Keys {
 		if key != "" && v.checkKey(key) {
 			validKeys = append(validKeys, key)
 		}
 	}
-	
+
 	// Update the valid keys list with lock protection
 	v.mutex.Lock()
 	v.validKeys = validKeys
 	v.mutex.Unlock()
-	
+
 	fmt.Printf("Found %d valid API keys\n", len(validKeys))
 }
 
@@ -69,7 +108,7 @@ func (v *Vender) RefreshValidKeys() {
 func (v *Vender) periodicKeyCheck() {
 	ticker := time.NewTicker(15 * time.Minute)
 	defer ticker.Stop()
-	
+
 	for range ticker.C {
 		v.RefreshValidKeys()
 	}
@@ -79,20 +118,46 @@ func (v *Vender) GetHost() string {
 	return v.conf.Host
 }
 
+// modifyProxyRequest modifies the incoming request before forwarding it to the target host
+func (v *Vender) modifyProxyRequest(req *http.Request, targetURL *url.URL) {
+	// Check if authorization header is empty or contains "null"
+	authHeader := req.Header.Get("Authorization")
+	if authHeader == "" || strings.Contains(authHeader, "null") {
+		// Use a valid API key from our validated keys
+		key := v.GetKey()
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", key))
+		fmt.Printf("Using vendor API key for request to %s\n", req.URL.Path)
+	}
+
+	// Set the proper host
+	req.Host = targetURL.Host
+	req.URL.Host = targetURL.Host
+	req.Header.Set("Host", targetURL.Host)
+
+	// Adjust the path if needed based on vendor type
+	if v.GetVendorType() == VendorTypeSiliconFlow && !strings.Contains(req.URL.Path, "/chat/completions") {
+		// If the path doesn't already have /chat/completions and it's SiliconFlow,
+		// we'll add it (following the pattern seen in the handler)
+		if targetURL.Path != "" {
+			req.URL.Path = targetURL.Path + "/chat/completions"
+		}
+	}
+}
+
 func (v *Vender) GetKey() string {
 	v.mutex.RLock()
 	defer v.mutex.RUnlock()
-	
+
 	// If no valid keys are available, return the main key even if it's invalid
 	if len(v.validKeys) == 0 {
 		return v.conf.Key
 	}
-	
+
 	// Return a random valid key using the thread-safe approach
 	rngMutex.Lock()
 	index := rng.Intn(len(v.validKeys))
 	rngMutex.Unlock()
-	
+
 	return v.validKeys[index]
 }
 
@@ -117,10 +182,10 @@ func (v *Vender) checkKey(key string) bool {
 	// Create a context with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
 	defer cancel()
-	
+
 	// Create a new HTTP client
 	client := &http.Client{}
-	
+
 	// Determine the vendor type and use appropriate validation method
 	vendorType := v.GetVendorType()
 	switch vendorType {
