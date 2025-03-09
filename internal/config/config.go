@@ -28,6 +28,7 @@ type Vendor struct {
 	Name string
 	Host string
 	Key  string
+	Keys []string
 }
 
 const (
