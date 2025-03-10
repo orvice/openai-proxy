@@ -80,6 +80,18 @@ func Models(c *gin.Context) {
 	if vendorName != "" {
 		logger.Debug("Fetching models for specific vendor", "vendor", vendorName)
 		vender := vendorManager.GetVendor(vendorName)
+		
+		// Check if models should be hidden for this vendor
+		if vender.ShouldHideModels() {
+			logger.Info("Models are hidden for this vendor", "vendor", vendorName)
+			// Return empty models list
+			c.JSON(http.StatusOK, vendor.ModelList{
+				Object: "list",
+				Data:   []vendor.ModelObject{},
+			})
+			return
+		}
+		
 		modelsData, err := vender.Models(ctx)
 		if err != nil {
 			logger.Error("error getting models for vendor", "vendor", vendorName, "error", err)
@@ -111,6 +123,13 @@ func Models(c *gin.Context) {
 	for _, vendorName := range vendorNames {
 		logger.Debug("Fetching models from vendor", "vendor", vendorName)
 		vender := vendorManager.GetVendor(vendorName)
+		
+		// Skip vendors with HideModels set to true
+		if vender.ShouldHideModels() {
+			logger.Debug("Skipping vendor with hidden models", "vendor", vendorName)
+			continue
+		}
+		
 		modelsData, err := vender.Models(ctx)
 		if err != nil {
 			logger.Error("error getting models for vendor", "vendor", vendorName, "error", err)

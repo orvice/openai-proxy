@@ -25,10 +25,11 @@ type Model struct {
 }
 
 type Vendor struct {
-	Name string
-	Host string
-	Key  string
-	Keys []string
+	Name       string
+	Host       string
+	HideModels bool
+	Key        string
+	Keys       []string
 }
 
 const (

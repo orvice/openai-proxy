@@ -258,6 +258,11 @@ func (v *Vender) GetKey() string {
 	return selectedKey
 }
 
+// ShouldHideModels returns true if this vendor's models should be hidden
+func (v *Vender) ShouldHideModels() bool {
+	return v.conf.HideModels
+}
+
 // VendorType represents the type of API vendor
 type VendorType string
 
