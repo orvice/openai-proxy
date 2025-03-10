@@ -66,29 +66,41 @@ func Models(c *gin.Context) {
 	logger.Info("models request",
 		"CF-Connecting-IP", c.Request.Header.Get("CF-Connecting-IP"),
 		"ua", c.Request.UserAgent(),
-		"vendor", vendorName)
+		"vendor", vendorName,
+		"path", c.Request.URL.Path,
+		"method", c.Request.Method)
 
 	// Create a context with timeout
 	ctx, cancel := context.WithTimeout(c.Request.Context(), time.Second*10)
 	defer cancel()
+	
+	logger.Debug("Processing models request", "vendor_requested", vendorName)
 
 	// If a specific vendor is requested, return only that vendor's models
 	if vendorName != "" {
+		logger.Debug("Fetching models for specific vendor", "vendor", vendorName)
 		vender := vendorManager.GetVendor(vendorName)
 		modelsData, err := vender.Models(ctx)
 		if err != nil {
 			logger.Error("error getting models for vendor", "vendor", vendorName, "error", err)
+			logger.Warn("Falling back to static models for specific vendor", "vendor", vendorName)
 			// Fallback to static models if API call fails
 			fallbackToStaticModels(c)
 			return
 		}
+		logger.Info("Successfully returned models for specific vendor", 
+			"vendor", vendorName, 
+			"model_count", len(modelsData.Data))
 		c.JSON(http.StatusOK, modelsData)
 		return
 	}
 
 	// If no specific vendor is requested, combine models from all vendors
+	logger.Info("Combining models from all vendors")
+	
 	// Get all vendor names
 	vendorNames := vendorManager.GetAllVendorNames()
+	logger.Debug("Retrieved vendor names", "count", len(vendorNames))
 
 	// Create a combined model list
 	allModels := make([]vendor.ModelObject, 0)
@@ -97,20 +109,28 @@ func Models(c *gin.Context) {
 	// First try to get models from each vendor
 	successCount := 0
 	for _, vendorName := range vendorNames {
+		logger.Debug("Fetching models from vendor", "vendor", vendorName)
 		vender := vendorManager.GetVendor(vendorName)
 		modelsData, err := vender.Models(ctx)
 		if err != nil {
 			logger.Error("error getting models for vendor", "vendor", vendorName, "error", err)
+			logger.Warn("Failed to get models from vendor", "vendor", vendorName, "error", err)
 			continue
 		}
 
 		// Add models to the combined list, avoiding duplicates
+		modelCount := 0
 		for _, model := range modelsData.Data {
 			if _, exists := modelMap[model.ID]; !exists {
 				allModels = append(allModels, model)
 				modelMap[model.ID] = true
+				modelCount++
 			}
 		}
+		logger.Debug("Added models from vendor", 
+			"vendor", vendorName, 
+			"models_added", modelCount, 
+			"total_models", len(allModels))
 		successCount++
 	}
 
@@ -122,6 +142,9 @@ func Models(c *gin.Context) {
 	}
 
 	// Return the combined model list
+	logger.Info("Successfully combined models from multiple vendors", 
+		"vendor_count", successCount, 
+		"total_models", len(allModels))
 	response := vendor.ModelList{
 		Object: "list",
 		Data:   allModels,
