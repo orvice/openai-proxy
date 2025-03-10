@@ -198,6 +198,19 @@ func (m *VendorManager) GetProxyForModel(modelName string) *httputil.ReverseProx
 	return m.GetProxyForVendor(vendorName)
 }
 
+// GetAllVendorNames returns a list of all vendor names
+func (m *VendorManager) GetAllVendorNames() []string {
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
+	
+	vendorNames := make([]string, 0, len(m.Vendors))
+	for name := range m.Vendors {
+		vendorNames = append(vendorNames, name)
+	}
+	
+	return vendorNames
+}
+
 // RefreshAllKeys refreshes the valid keys for all vendors
 func (m *VendorManager) RefreshAllKeys() {
 	slog.Info("Starting validation for all vendor keys")
