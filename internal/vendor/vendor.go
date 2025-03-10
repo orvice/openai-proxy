@@ -19,10 +19,19 @@ import (
 	"github.com/orvice/openapi-proxy/internal/config"
 )
 
+// ModelCacheItem represents a cached model list with an expiration time
+type ModelCacheItem struct {
+	Models    *ModelList
+	ExpiresAt time.Time
+}
+
 type Vender struct {
 	conf      config.Vendor
 	validKeys []string
 	mutex     sync.RWMutex
+	// Cache for Models method responses
+	modelsCache     map[string]ModelCacheItem
+	modelsCacheMux  sync.RWMutex
 }
 
 // Global random source with proper seeding
@@ -35,8 +44,9 @@ func NewVender(conf config.Vendor) *Vender {
 	slog.Info("Creating new vendor instance", "vendor", conf.Name, "host", conf.Host)
 
 	v := &Vender{
-		conf:      conf,
-		validKeys: make([]string, 0),
+		conf:        conf,
+		validKeys:   make([]string, 0),
+		modelsCache: make(map[string]ModelCacheItem),
 	}
 
 	// Initialize by checking all keys
@@ -321,8 +331,28 @@ type ModelObjectPricing struct {
 }
 
 // Models calls the /v1/models endpoint and returns the models list
+// Uses an in-memory cache with a default TTL of 1 hour
 func (v *Vender) Models(ctx context.Context) (*ModelList, error) {
 	logger := log.FromContext(ctx)
+	
+	// Create cache key using the vendor name and host
+	cacheKey := fmt.Sprintf("%s:%s", v.conf.Name, v.conf.Host)
+	
+	// Try to get from cache first
+	v.modelsCacheMux.RLock()
+	cacheItem, found := v.modelsCache[cacheKey]
+	v.modelsCacheMux.RUnlock()
+	
+	// If found in cache and not expired, return cached result
+	if found && time.Now().Before(cacheItem.ExpiresAt) {
+		logger.Info("Retrieved models list from cache",
+			"vendor", v.conf.Name,
+			"host", v.conf.Host,
+			"model_count", len(cacheItem.Models.Data),
+			"expires_in", time.Until(cacheItem.ExpiresAt).String())
+		return cacheItem.Models, nil
+	}
+	
 	logger.Info("Fetching models list",
 		"vendor", v.conf.Name,
 		"host", v.conf.Host,
@@ -421,6 +451,19 @@ func (v *Vender) Models(ctx context.Context) (*ModelList, error) {
 	logger.Info("Successfully fetched models list",
 		"vendor", v.conf.Name,
 		"model_count", len(modelList.Data))
+
+	// Store the result in cache with a 1 hour TTL
+	expiration := time.Now().Add(time.Hour)
+	v.modelsCacheMux.Lock()
+	v.modelsCache[cacheKey] = ModelCacheItem{
+		Models:    &modelList,
+		ExpiresAt: expiration,
+	}
+	v.modelsCacheMux.Unlock()
+	
+	logger.Debug("Cached models list",
+		"vendor", v.conf.Name,
+		"expires_at", expiration.Format(time.RFC3339))
 
 	return &modelList, nil
 }
