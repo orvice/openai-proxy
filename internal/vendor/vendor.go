@@ -300,6 +300,71 @@ func (v *Vender) checkKey(key string) (bool, error) {
 	}
 }
 
+type ModelList struct {
+	Object string        `json:"object"`
+	Data   []ModelObject `json:"data"`
+}
+
+type ModelObject struct {
+	ID      string `json:"id"`
+	Object  string `json:"object"`
+	Created int64  `json:"created"`
+	OwnedBy string `json:"owned_by"`
+}
+
+// Models calls the /v1/models endpoint and returns the models list
+func (v *Vender) Models(ctx context.Context) (*ModelList, error) {
+	// Create a new HTTP client
+	client := &http.Client{}
+
+	// Determine the base URL based on vendor type
+	baseURL := v.conf.Host
+
+	// Prepare the request to the models endpoint with context
+	req, err := http.NewRequestWithContext(ctx, "GET", baseURL+"/v1/models", nil)
+	if err != nil {
+		return nil, fmt.Errorf("error creating models request: %w", err)
+	}
+
+	// Set the API key in the Authorization header
+	key := v.GetKey()
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", key))
+
+	// Send the request
+	res, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("error making models request: %w", err)
+	}
+	defer res.Body.Close()
+
+	// Read the response body
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		return nil, fmt.Errorf("error reading models response: %w", err)
+	}
+
+	// Check if the response status code indicates success
+	if res.StatusCode != http.StatusOK {
+		slog.Debug("Models request failed",
+			"vendor", v.conf.Name,
+			"status", res.StatusCode,
+			"response", string(body))
+		return nil, fmt.Errorf("models request failed with status %d: %s", res.StatusCode, string(body))
+	}
+
+	// Parse the response into a ModelList struct
+	var modelList ModelList
+	if err := json.Unmarshal(body, &modelList); err != nil {
+		slog.Error("Failed to parse models response", 
+			"vendor", v.conf.Name, 
+			"error", err, 
+			"response", string(body))
+		return nil, fmt.Errorf("error parsing models response: %w", err)
+	}
+
+	return &modelList, nil
+}
+
 // checkOpenAIKey validates an OpenAI API key
 func (v *Vender) checkOpenAIKey(ctx context.Context, client *http.Client, key string) (bool, error) {
 	// Prepare the request to the models endpoint with context
