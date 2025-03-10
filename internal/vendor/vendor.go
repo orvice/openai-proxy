@@ -332,7 +332,7 @@ func (v *Vender) Models(ctx context.Context) (*ModelList, error) {
 	baseURL := v.conf.Host
 
 	// Prepare the request to the models endpoint with context
-	req, err := http.NewRequestWithContext(ctx, "GET", baseURL+"/v1/models", nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", baseURL+"/models", nil)
 	if err != nil {
 		logger.Error("Failed to create models request",
 			"vendor", v.conf.Name,
