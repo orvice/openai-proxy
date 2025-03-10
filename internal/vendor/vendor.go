@@ -402,8 +402,9 @@ func (v *Vender) Models(ctx context.Context) (*ModelList, error) {
 
 // checkOpenAIKey validates an OpenAI API key
 func (v *Vender) checkOpenAIKey(ctx context.Context, client *http.Client, key string) (bool, error) {
+	url := v.conf.Host + "/models"
 	// Prepare the request to the models endpoint with context
-	req, err := http.NewRequestWithContext(ctx, "GET", "https://api.openai.com/v1/models", nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return false, fmt.Errorf("error creating OpenAI request: %w", err)
 	}
