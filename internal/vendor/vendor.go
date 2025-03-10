@@ -207,21 +207,11 @@ func (v *Vender) modifyProxyRequest(req *http.Request, targetURL *url.URL) {
 	req.URL.Host = targetURL.Host
 	req.Header.Set("Host", targetURL.Host)
 
-	// Adjust the path if needed based on vendor type
-	if v.GetVendorType() == VendorTypeSiliconFlow && !strings.Contains(req.URL.Path, "/chat/completions") {
-		// If the path doesn't already have /chat/completions and it's SiliconFlow,
-		// we'll add it (following the pattern seen in the handler)
-		if targetURL.Path != "" {
-			originalPath := req.URL.Path
-			req.URL.Path = targetURL.Path + "/chat/completions"
-			slog.Info("Adjusted request path for SiliconFlow",
-				"vendor", v.conf.Name,
-				"original_path", originalPath,
-				"new_path", req.URL.Path)
-		}
-	}
+	venderURL, _ := url.Parse(v.conf.Host)
 
-	slog.Debug("Request modification complete",
+	req.URL.Path = venderURL.Path + "/chat/completions"
+
+	slog.Info("Request modification complete",
 		"vendor", v.conf.Name,
 		"final_path", req.URL.Path,
 		"final_host", req.Host)
