@@ -259,6 +259,7 @@ type VendorType string
 const (
 	VendorTypeOpenAI      VendorType = "openai"
 	VendorTypeSiliconFlow VendorType = "siliconflow"
+	VendorTypeOpenRouter  VendorType = "openrouter"
 )
 
 // Returns the vendor type based on the host
@@ -268,6 +269,8 @@ func (v *Vender) GetVendorType() VendorType {
 
 	if strings.Contains(host, "siliconflow") {
 		vendorType = VendorTypeSiliconFlow
+	} else if strings.Contains(host, "openrouter") {
+		vendorType = VendorTypeOpenRouter
 	} else {
 		vendorType = VendorTypeOpenAI
 	}
@@ -306,6 +309,15 @@ type ModelObject struct {
 	Object  string `json:"object"`
 	Created int64  `json:"created"`
 	OwnedBy string `json:"owned_by"`
+	// Fields for OpenRouter API
+	Name        string              `json:"name,omitempty"`
+	Description string              `json:"description,omitempty"`
+	Pricing     *ModelObjectPricing `json:"pricing,omitempty"`
+}
+
+type ModelObjectPricing struct {
+	Prompt     float64 `json:"prompt"`
+	Completion float64 `json:"completion"`
 }
 
 // Models calls the /v1/models endpoint and returns the models list
@@ -313,7 +325,8 @@ func (v *Vender) Models(ctx context.Context) (*ModelList, error) {
 	logger := log.FromContext(ctx)
 	logger.Info("Fetching models list",
 		"vendor", v.conf.Name,
-		"host", v.conf.Host)
+		"host", v.conf.Host,
+		"vendor_type", v.GetVendorType())
 
 	// Create a new HTTP client
 	client := &http.Client{}
@@ -381,6 +394,24 @@ func (v *Vender) Models(ctx context.Context) (*ModelList, error) {
 			"error", err,
 			"response", string(body))
 		return nil, fmt.Errorf("error parsing models response: %w", err)
+	}
+
+	// For OpenRouter, filter out models with non-zero prices
+	if v.GetVendorType() == VendorTypeOpenRouter {
+		var filteredModels []ModelObject
+		for _, model := range modelList.Data {
+			// Only include models with pricing information where both prompt and completion are 0
+			if model.Pricing != nil && model.Pricing.Prompt == 0 && model.Pricing.Completion == 0 {
+				filteredModels = append(filteredModels, model)
+			}
+		}
+		
+		logger.Info("Filtered OpenRouter models with zero price",
+			"vendor", v.conf.Name,
+			"original_count", len(modelList.Data),
+			"filtered_count", len(filteredModels))
+		
+		modelList.Data = filteredModels
 	}
 
 	logger.Info("Successfully fetched models list",
