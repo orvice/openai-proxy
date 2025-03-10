@@ -316,8 +316,8 @@ type ModelObject struct {
 }
 
 type ModelObjectPricing struct {
-	Prompt     float64 `json:"prompt"`
-	Completion float64 `json:"completion"`
+	Prompt     json.Number `json:"prompt"`
+	Completion json.Number `json:"completion"`
 }
 
 // Models calls the /v1/models endpoint and returns the models list
@@ -401,8 +401,12 @@ func (v *Vender) Models(ctx context.Context) (*ModelList, error) {
 		var filteredModels []ModelObject
 		for _, model := range modelList.Data {
 			// Only include models with pricing information where both prompt and completion are 0
-			if model.Pricing != nil && model.Pricing.Prompt == 0 && model.Pricing.Completion == 0 {
+			if model.Pricing != nil {
+				promptVal, _ := model.Pricing.Prompt.Float64()
+				completionVal, _ := model.Pricing.Completion.Float64()
+				if promptVal == 0 && completionVal == 0 {
 				filteredModels = append(filteredModels, model)
+				}
 			}
 		}
 		
