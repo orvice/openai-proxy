@@ -131,7 +131,8 @@ func Models(c *gin.Context) {
 
 // Helper function to return static models as a fallback
 func fallbackToStaticModels(c *gin.Context) {
-	var modelObjects []vendor.ModelObject
+	// Pre-allocate the slice with the capacity equal to the number of models
+	modelObjects := make([]vendor.ModelObject, 0)
 	for _, m := range config.Conf.Models {
 		modelObjects = append(modelObjects, vendor.ModelObject{
 			ID:      m.Name,
