@@ -30,8 +30,8 @@ type Vender struct {
 	validKeys []string
 	mutex     sync.RWMutex
 	// Cache for Models method responses
-	modelsCache     map[string]ModelCacheItem
-	modelsCacheMux  sync.RWMutex
+	modelsCache    map[string]ModelCacheItem
+	modelsCacheMux sync.RWMutex
 }
 
 // Global random source with proper seeding
@@ -217,10 +217,6 @@ func (v *Vender) modifyProxyRequest(req *http.Request, targetURL *url.URL) {
 	req.URL.Host = targetURL.Host
 	req.Header.Set("Host", targetURL.Host)
 
-	venderURL, _ := url.Parse(v.conf.Host)
-
-	req.URL.Path = venderURL.Path + "/chat/completions"
-
 	slog.Info("Request modification complete",
 		"vendor", v.conf.Name,
 		"final_path", req.URL.Path,
@@ -334,15 +330,15 @@ type ModelObjectPricing struct {
 // Uses an in-memory cache with a default TTL of 1 hour
 func (v *Vender) Models(ctx context.Context) (*ModelList, error) {
 	logger := log.FromContext(ctx)
-	
+
 	// Create cache key using the vendor name and host
 	cacheKey := fmt.Sprintf("%s:%s", v.conf.Name, v.conf.Host)
-	
+
 	// Try to get from cache first
 	v.modelsCacheMux.RLock()
 	cacheItem, found := v.modelsCache[cacheKey]
 	v.modelsCacheMux.RUnlock()
-	
+
 	// If found in cache and not expired, return cached result
 	if found && time.Now().Before(cacheItem.ExpiresAt) {
 		logger.Info("Retrieved models list from cache",
@@ -352,7 +348,7 @@ func (v *Vender) Models(ctx context.Context) (*ModelList, error) {
 			"expires_in", time.Until(cacheItem.ExpiresAt).String())
 		return cacheItem.Models, nil
 	}
-	
+
 	logger.Info("Fetching models list",
 		"vendor", v.conf.Name,
 		"host", v.conf.Host,
@@ -435,16 +431,16 @@ func (v *Vender) Models(ctx context.Context) (*ModelList, error) {
 				promptVal, _ := model.Pricing.Prompt.Float64()
 				completionVal, _ := model.Pricing.Completion.Float64()
 				if promptVal == 0 && completionVal == 0 {
-				filteredModels = append(filteredModels, model)
+					filteredModels = append(filteredModels, model)
 				}
 			}
 		}
-		
+
 		logger.Info("Filtered OpenRouter models with zero price",
 			"vendor", v.conf.Name,
 			"original_count", len(modelList.Data),
 			"filtered_count", len(filteredModels))
-		
+
 		modelList.Data = filteredModels
 	}
 
@@ -460,7 +456,7 @@ func (v *Vender) Models(ctx context.Context) (*ModelList, error) {
 		ExpiresAt: expiration,
 	}
 	v.modelsCacheMux.Unlock()
-	
+
 	logger.Debug("Cached models list",
 		"vendor", v.conf.Name,
 		"expires_at", expiration.Format(time.RFC3339))
