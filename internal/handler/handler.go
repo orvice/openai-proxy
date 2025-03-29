@@ -30,12 +30,22 @@ func initVendorManager() {
 	if err != nil {
 		slog.Error("Failed to initialize vendor manager", "error", err)
 	}
-
 	// Still initialize Gemini separately since it's not part of the vendor manager yet
 	initGeminiProxy()
 }
 
+func loggingMiddleware(c *gin.Context) {
+	logger := log.FromContext(c.Request.Context())
+	logger.Info("request",
+		"CF-Connecting-IP", c.Request.Header.Get("CF-Connecting-IP"),
+		"ua", c.Request.UserAgent(),
+		"method", c.Request.Method,
+		"path", c.Request.URL.Path)
+	c.Next()
+}
+
 func Router(r *gin.Engine) {
+	r.Use(loggingMiddleware)
 	initVendorManager()
 	r.GET("/v1/models", Models)
 	r.Any("/v1/chat/completions", ChatComplections)
