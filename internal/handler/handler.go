@@ -40,6 +40,7 @@ func Router(r *gin.Engine) {
 	r.GET("/v1/models", Models)
 	r.Any("/v1/chat/completions", ChatComplections)
 	r.Any("/v1beta/models/:model", geminiHandler)
+	r.Any("/v1beta/models", geminiHandler)
 	r.NoRoute(proxy)
 }
 
@@ -73,14 +74,14 @@ func Models(c *gin.Context) {
 	// Create a context with timeout
 	ctx, cancel := context.WithTimeout(c.Request.Context(), time.Second*10)
 	defer cancel()
-	
+
 	logger.Debug("Processing models request", "vendor_requested", vendorName)
 
 	// If a specific vendor is requested, return only that vendor's models
 	if vendorName != "" {
 		logger.Debug("Fetching models for specific vendor", "vendor", vendorName)
 		vender := vendorManager.GetVendor(vendorName)
-		
+
 		// Check if models should be hidden for this vendor
 		if vender.ShouldHideModels() {
 			logger.Info("Models are hidden for this vendor", "vendor", vendorName)
@@ -91,7 +92,7 @@ func Models(c *gin.Context) {
 			})
 			return
 		}
-		
+
 		modelsData, err := vender.Models(ctx)
 		if err != nil {
 			logger.Error("error getting models for vendor", "vendor", vendorName, "error", err)
@@ -100,8 +101,8 @@ func Models(c *gin.Context) {
 			fallbackToStaticModels(c)
 			return
 		}
-		logger.Info("Successfully returned models for specific vendor", 
-			"vendor", vendorName, 
+		logger.Info("Successfully returned models for specific vendor",
+			"vendor", vendorName,
 			"model_count", len(modelsData.Data))
 		c.JSON(http.StatusOK, modelsData)
 		return
@@ -109,7 +110,7 @@ func Models(c *gin.Context) {
 
 	// If no specific vendor is requested, combine models from all vendors
 	logger.Info("Combining models from all vendors")
-	
+
 	// Get all vendor names
 	vendorNames := vendorManager.GetAllVendorNames()
 	logger.Debug("Retrieved vendor names", "count", len(vendorNames))
@@ -123,13 +124,13 @@ func Models(c *gin.Context) {
 	for _, vendorName := range vendorNames {
 		logger.Debug("Fetching models from vendor", "vendor", vendorName)
 		vender := vendorManager.GetVendor(vendorName)
-		
+
 		// Skip vendors with HideModels set to true
 		if vender.ShouldHideModels() {
 			logger.Debug("Skipping vendor with hidden models", "vendor", vendorName)
 			continue
 		}
-		
+
 		modelsData, err := vender.Models(ctx)
 		if err != nil {
 			logger.Error("error getting models for vendor", "vendor", vendorName, "error", err)
@@ -146,9 +147,9 @@ func Models(c *gin.Context) {
 				modelCount++
 			}
 		}
-		logger.Debug("Added models from vendor", 
-			"vendor", vendorName, 
-			"models_added", modelCount, 
+		logger.Debug("Added models from vendor",
+			"vendor", vendorName,
+			"models_added", modelCount,
 			"total_models", len(allModels))
 		successCount++
 	}
@@ -161,8 +162,8 @@ func Models(c *gin.Context) {
 	}
 
 	// Return the combined model list
-	logger.Info("Successfully combined models from multiple vendors", 
-		"vendor_count", successCount, 
+	logger.Info("Successfully combined models from multiple vendors",
+		"vendor_count", successCount,
 		"total_models", len(allModels))
 	response := vendor.ModelList{
 		Object: "list",

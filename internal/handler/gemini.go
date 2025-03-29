@@ -29,6 +29,8 @@ func initGeminiProxy() {
 	originalDirector := geminiProxy.Director
 	geminiProxy.Director = func(req *http.Request) {
 		originalDirector(req)
+		slog.Info("new gemini request",
+			"path", req.URL.Path)
 		req.Host = u.Host
 		req.URL.Host = u.Host
 	}
