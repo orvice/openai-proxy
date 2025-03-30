@@ -490,7 +490,8 @@ func (v *Vender) checkOpenAIKey(ctx context.Context, client *http.Client, key st
 
 	// Read the error response for debugging purposes
 	body, _ := io.ReadAll(res.Body)
-	slog.Debug("OpenAI API key validation failed",
+	slog.Warn("OpenAI API key validation failed",
+		"check_url", url,
 		"vendor", v.conf.Name,
 		"status", res.StatusCode,
 		"response", string(body))
