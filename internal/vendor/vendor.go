@@ -360,8 +360,15 @@ func (v *Vender) Models(ctx context.Context) (*ModelList, error) {
 	// Determine the base URL based on vendor type
 	baseURL := v.conf.Host
 
+	// trim the trailing slash
+	baseURL = strings.TrimRight(baseURL, "/")
+
+	modelsURL := baseURL + "/v1/models"
+
+	logger = logger.With("models_url", modelsURL)
+
 	// Prepare the request to the models endpoint with context
-	req, err := http.NewRequestWithContext(ctx, "GET", baseURL+"/v1/models", nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", modelsURL, nil)
 	if err != nil {
 		logger.Error("Failed to create models request",
 			"vendor", v.conf.Name,
@@ -379,7 +386,7 @@ func (v *Vender) Models(ctx context.Context) (*ModelList, error) {
 	// Send the request
 	logger.Debug("Sending models request",
 		"vendor", v.conf.Name,
-		"url", baseURL+"/v1/models")
+		"url", modelsURL)
 	res, err := client.Do(req)
 	if err != nil {
 		logger.Error("Failed to make models request",
