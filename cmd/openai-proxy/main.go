@@ -13,7 +13,7 @@ func main() {
 		Config:  config.Conf,
 		Service: "aiproxy",
 		Router:  handler.Router,
-		InitFunc: []func(){
+		InitFunc: []func() error{
 			workflows.Init,
 		},
 	})
