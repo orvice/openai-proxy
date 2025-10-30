@@ -3,6 +3,7 @@ package workflows
 import (
 	"context"
 
+	"butterfly.orx.me/core/log"
 	"github.com/firebase/genkit/go/ai"
 	"github.com/firebase/genkit/go/genkit"
 	"github.com/firebase/genkit/go/plugins/googlegenai"
@@ -76,6 +77,8 @@ func InitWorkflows() {
 	// Travel planning workflow
 	genkit.DefineFlow(g, "travelPlanFlow",
 		func(ctx context.Context, input TravelPlanInput) (*TravelPlan, error) {
+			logger := log.FromContext(ctx)
+			logger.Info("travelPlanFlow", "input", input)
 			prompt := `Create a detailed travel plan from %s to %s for %d days.
 Please provide:
 1. An overview of the trip
@@ -91,5 +94,4 @@ Format the response as a structured travel plan.`
 			)
 			return plan, err
 		})
-
 }
