@@ -9,9 +9,10 @@ var (
 )
 
 type Config struct {
-	Models        []Model  `yaml:"models"`
-	Vendors       []Vendor `yaml:"vendors"`
-	DefaultVendor string   `yaml:"defaultVendor"`
+	GoogleAIAPIKey string   `yaml:"googleAIAPIKey"`
+	Models         []Model  `yaml:"models"`
+	Vendors        []Vendor `yaml:"vendors"`
+	DefaultVendor  string   `yaml:"defaultVendor"`
 }
 
 func (Config) Print() {
