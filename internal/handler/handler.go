@@ -9,9 +9,11 @@ import (
 	"time"
 
 	"butterfly.orx.me/core/log"
+	"github.com/firebase/genkit/go/genkit"
 	"github.com/gin-gonic/gin"
 	"github.com/orvice/openapi-proxy/internal/config"
 	"github.com/orvice/openapi-proxy/internal/vendor"
+	"github.com/orvice/openapi-proxy/internal/workflows"
 )
 
 var (
@@ -51,6 +53,13 @@ func Router(r *gin.Engine) {
 	r.Any("/v1/chat/completions", ChatComplections)
 	r.Any("/v1beta/models/:model", geminiHandler)
 	r.Any("/v1beta/models", geminiHandler)
+
+	for _, flow := range genkit.ListFlows(workflows.Genkit()) {
+		r.POST("/v1/workflows/"+flow.Name(), func(c *gin.Context) {
+			genkit.Handler(flow)(c.Writer, c.Request)
+		})
+	}
+
 	r.NoRoute(proxy)
 }
 
