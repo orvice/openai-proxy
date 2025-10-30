@@ -65,17 +65,16 @@ type TravelPlan struct {
 }
 
 func InitWorkflows() {
-	menuSuggestionFlow := genkit.DefineFlow(g, "menuSuggestionFlow",
+	genkit.DefineFlow(g, "menuSuggestionFlow",
 		func(ctx context.Context, input MenuSuggestionInput) (*MenuItem, error) {
 			item, _, err := genkit.GenerateData[MenuItem](ctx, g,
 				ai.WithPrompt("Invent a menu item for a %s themed restaurant.", input.Theme),
 			)
 			return item, err
 		})
-	genkit.RegisterAction(g, menuSuggestionFlow)
 
 	// Travel planning workflow
-	travelPlanFlow := genkit.DefineFlow(g, "travelPlanFlow",
+	genkit.DefineFlow(g, "travelPlanFlow",
 		func(ctx context.Context, input TravelPlanInput) (*TravelPlan, error) {
 			prompt := `Create a detailed travel plan from %s to %s for %d days.
 Please provide:
@@ -92,5 +91,5 @@ Format the response as a structured travel plan.`
 			)
 			return plan, err
 		})
-	genkit.RegisterAction(g, travelPlanFlow)
+
 }
