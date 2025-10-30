@@ -5,6 +5,7 @@ import (
 	"butterfly.orx.me/core/app"
 	"github.com/orvice/openapi-proxy/internal/config"
 	"github.com/orvice/openapi-proxy/internal/handler"
+	"github.com/orvice/openapi-proxy/internal/workflows"
 )
 
 func main() {
@@ -12,6 +13,9 @@ func main() {
 		Config:  config.Conf,
 		Service: "aiproxy",
 		Router:  handler.Router,
+		InitFunc: []func(){
+			workflows.Init,
+		},
 	})
 	app.Run()
 }
