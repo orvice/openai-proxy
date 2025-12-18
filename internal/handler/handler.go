@@ -49,6 +49,8 @@ func loggingMiddleware(c *gin.Context) {
 func Router(r *gin.Engine) {
 	r.Use(loggingMiddleware)
 	initVendorManager()
+
+	r.GET("/", Pong)
 	r.GET("/v1/models", Models)
 	r.Any("/v1/chat/completions", ChatComplections)
 	r.Any("/v1beta/models/:model", geminiHandler)
@@ -245,4 +247,10 @@ func ChatComplections(c *gin.Context) {
 	// Get the proxy for the vendor and serve the request
 	proxy := vendorManager.GetProxyForModel(req.Model)
 	proxy.ServeHTTP(c.Writer, c.Request)
+}
+
+func Pong(c *gin.Context) {
+	c.JSON(http.StatusOK, map[string]any{
+		"time": time.Now().Unix(),
+	})
 }
