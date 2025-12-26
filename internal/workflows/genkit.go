@@ -26,6 +26,7 @@ func logMiddleware(req *http.Request, next option.MiddlewareNext) (*http.Respons
 	logger.Info("request", "method", req.Method, "url", req.URL.String())
 	resp, err := next(req)
 	if err != nil {
+		logger.Error("request failed", "error", err)
 		return nil, err
 	}
 	logger.Info("request completed", "status", resp.StatusCode)
