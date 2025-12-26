@@ -2,6 +2,7 @@ package workflows
 
 import (
 	"context"
+	"net/http"
 
 	"butterfly.orx.me/core/log"
 	"github.com/firebase/genkit/go/ai"
@@ -10,6 +11,7 @@ import (
 	"github.com/firebase/genkit/go/genkit"
 	oai "github.com/firebase/genkit/go/plugins/compat_oai"
 	"github.com/firebase/genkit/go/plugins/googlegenai"
+	"github.com/openai/openai-go/option"
 	"github.com/orvice/openapi-proxy/internal/config"
 )
 
@@ -19,12 +21,24 @@ var (
 	travelPlanFlow *core.Flow[TravelPlanInput, *TravelPlan, struct{}]
 )
 
+func logMiddleware(req *http.Request, next option.MiddlewareNext) (*http.Response, error) {
+	logger := log.FromContext(req.Context()).With("component", "workflows")
+	logger.Info("request", "method", req.Method, "url", req.URL.String())
+	resp, err := next(req)
+	if err != nil {
+		return nil, err
+	}
+	logger.Info("request completed", "status", resp.StatusCode)
+	return resp, nil
+}
 func openaiPlugin() *oai.OpenAICompatible {
 	vendor := config.Conf.GetWorkflowVender()
+
 	return &oai.OpenAICompatible{
 		Provider: vendor.Name,
 		APIKey:   vendor.Key,
 		BaseURL:  vendor.Host,
+		Opts:     []option.RequestOption{option.WithMiddleware(logMiddleware)},
 	}
 }
 
