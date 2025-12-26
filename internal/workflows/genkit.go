@@ -30,6 +30,7 @@ func openaiPlugin() *oai.OpenAICompatible {
 
 func Init() error {
 	ctx := context.Background()
+	logger := log.FromContext(ctx).With("component", "workflows")
 
 	vendor := config.Conf.GetWorkflowVender()
 
@@ -38,9 +39,15 @@ func Init() error {
 	var models = "googleai/gemini-2.5-flash"
 
 	if vendor.Name != "" {
+		logger.Info("Initializing workflows with custom vendor",
+			"vendor", vendor.Name,
+			"host", vendor.Host,
+			"default_model", vendor.DefaultModel)
 		plugins = append(plugins, openaiPlugin())
 		models = vendor.DefaultModel
 	} else {
+		logger.Info("Initializing workflows with Google AI",
+			"default_model", models)
 		plugins = append(plugins, &googlegenai.GoogleAI{
 			APIKey: config.Conf.GoogleAIAPIKey,
 		})
@@ -52,7 +59,9 @@ func Init() error {
 		genkit.WithDefaultModel(models),
 	)
 
+	logger.Info("Genkit initialized successfully")
 	InitWorkflows()
+	logger.Info("Workflows initialized successfully")
 	return nil
 }
 
@@ -97,9 +106,22 @@ type TravelPlan struct {
 func InitWorkflows() {
 	genkit.DefineFlow(g, "menuSuggestionFlow",
 		func(ctx context.Context, input MenuSuggestionInput) (*MenuItem, error) {
-			item, _, err := genkit.GenerateData[MenuItem](ctx, g,
+			logger := log.FromContext(ctx)
+			logger.Info("menuSuggestionFlow", "input", input)
+
+			item, metadata, err := genkit.GenerateData[MenuItem](ctx, g,
 				ai.WithPrompt("Invent a menu item for a %s themed restaurant.", input.Theme),
 			)
+
+			if err != nil {
+				logger.Error("menuSuggestionFlow failed", "error", err)
+				return nil, err
+			}
+
+			logger.Info("menuSuggestionFlow completed",
+				"item", item,
+				"usage", metadata.Usage)
+
 			return item, err
 		})
 
@@ -107,7 +129,8 @@ func InitWorkflows() {
 	travelPlanFlow = genkit.DefineFlow(g, "travelPlanFlow",
 		func(ctx context.Context, input TravelPlanInput) (*TravelPlan, error) {
 			logger := log.FromContext(ctx)
-			logger.Info("travelPlanFlow", "input", input)
+			logger.Info("travelPlanFlow started", "input", input)
+
 			prompt := `Create a detailed travel plan from %s to %s for %d days.
 Please provide:
 1. An overview of the trip
@@ -118,9 +141,20 @@ Please provide:
 
 Format the response as a structured travel plan.`
 
-			plan, _, err := genkit.GenerateData[TravelPlan](ctx, g,
+			plan, metadata, err := genkit.GenerateData[TravelPlan](ctx, g,
 				ai.WithPrompt(prompt, input.DepartureCity, input.DestinationCity, input.TravelDays),
 			)
+
+			if err != nil {
+				logger.Error("travelPlanFlow failed", "error", err)
+				return nil, err
+			}
+
+			logger.Info("travelPlanFlow completed",
+				"destination", plan.Destination,
+				"duration", plan.Duration,
+				"usage", metadata.Usage)
+
 			return plan, err
 		})
 
