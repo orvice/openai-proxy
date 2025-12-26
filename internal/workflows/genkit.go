@@ -107,6 +107,7 @@ type TravelPlanInput struct {
 	DepartureCity   string `json:"departure_city"`
 	DestinationCity string `json:"destination_city"`
 	TravelDays      int    `json:"travel_days"`
+	Language        string `json:"language"`
 }
 
 type DayItinerary struct {
@@ -154,6 +155,11 @@ func InitWorkflows() {
 			logger := log.FromContext(ctx)
 			logger.Info("travelPlanFlow started", "input", input)
 
+			lang := input.Language
+			if lang == "" {
+				lang = "Chinese"
+			}
+
 			prompt := `Create a detailed travel plan from %s to %s for %d days.
 Please provide:
 1. An overview of the trip
@@ -162,10 +168,11 @@ Please provide:
 4. Budget estimates
 5. Useful tips for travelers
 
-Format the response as a structured travel plan.`
+Format the response as a structured travel plan.
+Please respond in %s.`
 
 			plan, metadata, err := genkit.GenerateData[TravelPlan](ctx, g,
-				ai.WithPrompt(prompt, input.DepartureCity, input.DestinationCity, input.TravelDays),
+				ai.WithPrompt(prompt, input.DepartureCity, input.DestinationCity, input.TravelDays, lang),
 			)
 
 			if err != nil {
