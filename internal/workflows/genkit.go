@@ -5,24 +5,55 @@ import (
 
 	"butterfly.orx.me/core/log"
 	"github.com/firebase/genkit/go/ai"
+	"github.com/firebase/genkit/go/core"
+	"github.com/firebase/genkit/go/core/api"
 	"github.com/firebase/genkit/go/genkit"
+	oai "github.com/firebase/genkit/go/plugins/compat_oai"
 	"github.com/firebase/genkit/go/plugins/googlegenai"
 	"github.com/orvice/openapi-proxy/internal/config"
 )
 
 var (
 	g *genkit.Genkit
+
+	travelPlanFlow *core.Flow[TravelPlanInput, *TravelPlan, struct{}]
 )
+
+func openaiPlugin() *oai.OpenAICompatible {
+	vendor := config.Conf.GetWorkflowVender()
+	return &oai.OpenAICompatible{
+		Provider: vendor.Name,
+		APIKey:   vendor.Key,
+		BaseURL:  vendor.Host,
+	}
+}
 
 func Init() error {
 	ctx := context.Background()
+
+	vendor := config.Conf.GetWorkflowVender()
+
+	plugins := []api.Plugin{}
+
+	var models = "googleai/gemini-2.5-flash"
+
+	if vendor.Name != "" {
+		plugins = append(plugins, openaiPlugin())
+		models = vendor.DefaultModel
+	} else {
+		plugins = append(plugins, &googlegenai.GoogleAI{
+			APIKey: config.Conf.GoogleAIAPIKey,
+		})
+	}
+
 	// Initialize Genkit with the Google AI plugin
 	g = genkit.Init(ctx,
 		genkit.WithPlugins(&googlegenai.GoogleAI{
 			APIKey: config.Conf.GoogleAIAPIKey,
 		}),
-		genkit.WithDefaultModel("googleai/gemini-2.5-flash"),
+		genkit.WithDefaultModel(models),
 	)
+
 	InitWorkflows()
 	return nil
 }
@@ -75,7 +106,7 @@ func InitWorkflows() {
 		})
 
 	// Travel planning workflow
-	genkit.DefineFlow(g, "travelPlanFlow",
+	travelPlanFlow = genkit.DefineFlow(g, "travelPlanFlow",
 		func(ctx context.Context, input TravelPlanInput) (*TravelPlan, error) {
 			logger := log.FromContext(ctx)
 			logger.Info("travelPlanFlow", "input", input)
@@ -94,4 +125,5 @@ Format the response as a structured travel plan.`
 			)
 			return plan, err
 		})
+
 }
