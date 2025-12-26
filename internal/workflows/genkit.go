@@ -107,7 +107,7 @@ type TravelPlanInput struct {
 	DepartureCity   string `json:"departure_city"`
 	DestinationCity string `json:"destination_city"`
 	TravelDays      int    `json:"travel_days"`
-	Language        string `json:"language"`
+	Language        string `json:"language,omitempty"`
 }
 
 type DayItinerary struct {
