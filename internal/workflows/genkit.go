@@ -3,6 +3,7 @@ package workflows
 import (
 	"context"
 	"net/http"
+	"strings"
 
 	"butterfly.orx.me/core/log"
 	"github.com/firebase/genkit/go/ai"
@@ -35,14 +36,17 @@ func logMiddleware(req *http.Request, next option.MiddlewareNext) (*http.Respons
 func openaiPlugin() *oai.OpenAICompatible {
 	vendor := config.Conf.GetWorkflowVender()
 
+	baseURL := vendor.Host
+	if !strings.Contains(baseURL, "v1") && !strings.Contains(baseURL, "v2") {
+		baseURL = strings.TrimSuffix(baseURL, "/") + "/v1"
+	}
+
 	return &oai.OpenAICompatible{
 		Provider: vendor.Name,
 		APIKey:   vendor.Key,
-		BaseURL:  vendor.Host,
+		BaseURL:  baseURL,
 		Opts: []option.RequestOption{
 			option.WithMiddleware(logMiddleware),
-			option.WithBaseURL(vendor.Host),
-			option.WithAPIKey(vendor.Key),
 		},
 	}
 }
