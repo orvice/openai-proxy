@@ -46,11 +46,9 @@ func Init() error {
 		})
 	}
 
-	// Initialize Genkit with the Google AI plugin
+	// Initialize Genkit with the plugins
 	g = genkit.Init(ctx,
-		genkit.WithPlugins(&googlegenai.GoogleAI{
-			APIKey: config.Conf.GoogleAIAPIKey,
-		}),
+		genkit.WithPlugins(plugins...),
 		genkit.WithDefaultModel(models),
 	)
 
