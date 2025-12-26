@@ -39,7 +39,11 @@ func openaiPlugin() *oai.OpenAICompatible {
 		Provider: vendor.Name,
 		APIKey:   vendor.Key,
 		BaseURL:  vendor.Host,
-		Opts:     []option.RequestOption{option.WithMiddleware(logMiddleware)},
+		Opts: []option.RequestOption{
+			option.WithMiddleware(logMiddleware),
+			option.WithBaseURL(vendor.Host),
+			option.WithAPIKey(vendor.Key),
+		},
 	}
 }
 
