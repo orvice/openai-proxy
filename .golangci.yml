@@ -1,14 +1,20 @@
+version: "2"
+
 run:
-  timeout: 5m
   modules-download-mode: readonly
   tests: false
-issues:
-  exclude-dirs:
-    - pkg/ent
-    - pkg/proto
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  exclusions:
+    paths:
+      - pkg/ent
+      - pkg/proto
+
 linters:
-  disable-all: true
-  fast: false
+  default: none
   enable:
     - bodyclose
     - dogsled
@@ -16,10 +22,7 @@ linters:
     - errcheck
     - copyloopvar
     - govet
-    - gosimple
-    - gofmt
     - goconst
-    - goimports
     - mnd
     - gocyclo
     - ineffassign
@@ -27,7 +30,6 @@ linters:
     - prealloc
     - revive
     - staticcheck
-    - typecheck
     - unused
     - unconvert
     - whitespace
@@ -49,19 +51,27 @@ linters:
   # - stylrcheck
   # - wsl
 
-linters-settings:
-  whitespace:
-    multi-func: true
-  lll:
-    line-length: 160
-  mnd:
-    # don't include the "operation", "argument" and "assign"
-    checks: 
-      - case
-      - condition
-      - return
-  goconst:
-    ignore-tests: true
-  gocyclo:
-    # recommend 10-20
-    min-complexity: 30
+  settings:
+    whitespace:
+      multi-func: true
+    lll:
+      line-length: 160
+    mnd:
+      # don't include the "operation", "argument" and "assign"
+      checks:
+        - case
+        - condition
+        - return
+    goconst:
+      ignore-tests: true
+    gocyclo:
+      # recommend 10-20
+      min-complexity: 30
+
+  exclusions:
+    paths:
+      - pkg/ent
+      - pkg/proto
+
+issues:
+  exclude-generated: lax
