@@ -3,6 +3,7 @@ package handler
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
@@ -11,6 +12,9 @@ import (
 	"butterfly.orx.me/core/log"
 	"github.com/firebase/genkit/go/genkit"
 	"github.com/gin-gonic/gin"
+	"github.com/openai/openai-go"
+	"github.com/openai/openai-go/responses"
+	"github.com/openai/openai-go/shared"
 	"github.com/orvice/openapi-proxy/internal/config"
 	"github.com/orvice/openapi-proxy/internal/vendor"
 	"github.com/orvice/openapi-proxy/internal/workflows"
@@ -53,6 +57,8 @@ func Router(r *gin.Engine) {
 	r.GET("/", Pong)
 	r.GET("/v1/models", Models)
 	r.Any("/v1/chat/completions", ChatComplections)
+	r.Any("/v1/responses", Responses)
+	r.Any("/v1/responses/:id", ResponseByID)
 	r.Any("/v1beta/models/:model", geminiHandler)
 	r.Any("/v1beta/models", geminiHandler)
 
@@ -213,13 +219,48 @@ func fallbackToStaticModels(c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
-type completionsRequest struct {
-	Model string `json:"model"`
+type message struct {
+	Role    string `json:"role"`
+	Content any    `json:"content"` // can be string or array of content parts
+}
+
+// chatCompletionsRequest wraps openai.ChatCompletionNewParams for proxy parsing
+type chatCompletionsRequest struct {
+	Model    shared.ChatModel `json:"model"`
+	Messages []message        `json:"messages"`
+}
+
+// calculateContextSize calculates the approximate context size from messages
+func calculateContextSize(messages []message) int {
+	totalSize := 0
+	for _, msg := range messages {
+		totalSize += calculateContentSize(msg.Content)
+	}
+	return totalSize
+}
+
+// calculateContentSize calculates size from content (string or array)
+func calculateContentSize(content any) int {
+	switch c := content.(type) {
+	case string:
+		return len(c)
+	case []any:
+		size := 0
+		for _, part := range c {
+			if partMap, ok := part.(map[string]any); ok {
+				if text, ok := partMap["text"].(string); ok {
+					size += len(text)
+				}
+			}
+		}
+		return size
+	}
+	return 0
 }
 
 func ChatComplections(c *gin.Context) {
 	logger := log.FromContext(c.Request.Context())
-	var req completionsRequest
+	var req chatCompletionsRequest
 	if err := c.ShouldBindBodyWithJSON(&req); err != nil {
 		logger.Error("bind json error",
 			"error", err)
@@ -227,25 +268,30 @@ func ChatComplections(c *gin.Context) {
 		return
 	}
 
+	// Calculate context size
+	contextSize := calculateContextSize(req.Messages)
+
 	// Restore request body for proxy
 	if bodyBytes, exists := c.Get(gin.BodyBytesKey); exists {
-		logger.Info("restoring request body", "len", len(bodyBytes.([]byte)))
 		c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes.([]byte)))
 	}
 
+	model := string(req.Model)
 	// Get the appropriate vendor for the model
-	vendorName := vendorManager.GetVendorForModel(req.Model)
+	vendorName := vendorManager.GetVendorForModel(model)
 
-	logger.Info("proxy request",
+	logger.Info("chat completions request",
 		"CF-Connecting-IP", c.Request.Header.Get("CF-Connecting-IP"),
 		"ua", c.Request.UserAgent(),
 		"method", c.Request.Method,
-		"model", req.Model,
+		"model", model,
 		"vendor", vendorName,
+		"message_count", len(req.Messages),
+		"context_size", contextSize,
 		"path", c.Request.URL.Path)
 
 	// Get the proxy for the vendor and serve the request
-	proxy := vendorManager.GetProxyForModel(req.Model)
+	proxy := vendorManager.GetProxyForModel(model)
 	proxy.ServeHTTP(c.Writer, c.Request)
 }
 
@@ -253,4 +299,109 @@ func Pong(c *gin.Context) {
 	c.JSON(http.StatusOK, map[string]any{
 		"time": time.Now().Unix(),
 	})
+}
+
+type inputItem struct {
+	Role    string `json:"role"`
+	Content any    `json:"content"`
+}
+
+// responsesRequest wraps responses.ResponseNewParams for proxy parsing
+type responsesRequest struct {
+	Model shared.ResponsesModel `json:"model"`
+	Input json.RawMessage       `json:"input"` // can be string or array of input items
+}
+
+// parseInputItems parses the input field which can be string or array
+func parseInputItems(input json.RawMessage) ([]inputItem, int) {
+	if len(input) == 0 {
+		return nil, 0
+	}
+
+	// Try parsing as string first
+	var str string
+	if err := json.Unmarshal(input, &str); err == nil {
+		return []inputItem{{Content: str}}, len(str)
+	}
+
+	// Try parsing as array of input items
+	var items []inputItem
+	if err := json.Unmarshal(input, &items); err == nil {
+		size := 0
+		for _, item := range items {
+			size += calculateContentSize(item.Content)
+		}
+		return items, size
+	}
+
+	return nil, 0
+}
+
+// Responses handles the OpenAI Responses API (/v1/responses)
+func Responses(c *gin.Context) {
+	logger := log.FromContext(c.Request.Context())
+
+	// For POST requests, parse the model from body
+	if c.Request.Method == http.MethodPost {
+		var req responsesRequest
+		if err := c.ShouldBindBodyWithJSON(&req); err != nil {
+			logger.Error("bind json error", "error", err)
+			c.JSON(400, gin.H{"error": err.Error()})
+			return
+		}
+
+		// Parse input and calculate context size
+		items, contextSize := parseInputItems(req.Input)
+
+		// Restore request body for proxy
+		if bodyBytes, exists := c.Get(gin.BodyBytesKey); exists {
+			c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes.([]byte)))
+		}
+
+		model := string(req.Model)
+		vendorName := vendorManager.GetVendorForModel(model)
+		logger.Info("responses request",
+			"method", c.Request.Method,
+			"model", model,
+			"vendor", vendorName,
+			"input_count", len(items),
+			"context_size", contextSize,
+			"path", c.Request.URL.Path)
+
+		proxy := vendorManager.GetProxyForModel(model)
+		proxy.ServeHTTP(c.Writer, c.Request)
+		return
+	}
+
+	// For other methods (GET for listing), use default vendor
+	vendorName := c.Request.Header.Get("x-vendor")
+	logger.Info("responses request",
+		"method", c.Request.Method,
+		"vendor", vendorName,
+		"path", c.Request.URL.Path)
+
+	proxy := vendorManager.GetProxyForVendor(vendorName)
+	proxy.ServeHTTP(c.Writer, c.Request)
+}
+
+// Ensure openai-go types are used (for compile-time verification)
+var (
+	_ openai.ChatCompletionNewParams
+	_ responses.ResponseNewParams
+)
+
+// ResponseByID handles individual response operations (/v1/responses/:id)
+func ResponseByID(c *gin.Context) {
+	logger := log.FromContext(c.Request.Context())
+	responseID := c.Param("id")
+
+	vendorName := c.Request.Header.Get("x-vendor")
+	logger.Info("response by id request",
+		"method", c.Request.Method,
+		"response_id", responseID,
+		"vendor", vendorName,
+		"path", c.Request.URL.Path)
+
+	proxy := vendorManager.GetProxyForVendor(vendorName)
+	proxy.ServeHTTP(c.Writer, c.Request)
 }

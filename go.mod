@@ -6,7 +6,7 @@ require (
 	butterfly.orx.me/core v0.0.0-20250326150726-e3b4a5d6dff9
 	github.com/firebase/genkit/go v1.1.0
 	github.com/gin-gonic/gin v1.11.0
-	github.com/openai/openai-go v1.8.2
+	github.com/openai/openai-go v1.12.0
 )
 
 require (
