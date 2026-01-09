@@ -1,12 +1,15 @@
 package handler
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"butterfly.orx.me/core/log"
@@ -258,6 +261,67 @@ func calculateContentSize(content any) int {
 	return 0
 }
 
+// responseCapture wraps http.ResponseWriter to capture response body
+type responseCapture struct {
+	gin.ResponseWriter
+	body        *bytes.Buffer
+	isStreaming bool
+}
+
+func newResponseCapture(w gin.ResponseWriter) *responseCapture {
+	return &responseCapture{
+		ResponseWriter: w,
+		body:           &bytes.Buffer{},
+	}
+}
+
+func (r *responseCapture) Write(b []byte) (int, error) {
+	r.body.Write(b)
+	return r.ResponseWriter.Write(b)
+}
+
+func (r *responseCapture) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	return r.ResponseWriter.Hijack()
+}
+
+// tokenUsage represents token consumption from API response
+type tokenUsage struct {
+	PromptTokens     int64 `json:"prompt_tokens"`
+	CompletionTokens int64 `json:"completion_tokens"`
+	TotalTokens      int64 `json:"total_tokens"`
+}
+
+// chatCompletionResponse for parsing usage from response
+type chatCompletionResponse struct {
+	Usage *tokenUsage `json:"usage"`
+}
+
+// parseTokenUsage extracts token usage from response body (handles both streaming and non-streaming)
+func parseTokenUsage(body []byte, isStreaming bool) *tokenUsage {
+	if isStreaming {
+		// For streaming responses, look for the last data chunk with usage
+		lines := strings.Split(string(body), "\n")
+		for i := len(lines) - 1; i >= 0; i-- {
+			line := strings.TrimPrefix(lines[i], "data: ")
+			if line == "" || line == "[DONE]" {
+				continue
+			}
+			var resp chatCompletionResponse
+			if err := json.Unmarshal([]byte(line), &resp); err == nil && resp.Usage != nil {
+				return resp.Usage
+			}
+		}
+		return nil
+	}
+
+	// Non-streaming response
+	var resp chatCompletionResponse
+	if err := json.Unmarshal(body, &resp); err == nil {
+		return resp.Usage
+	}
+	return nil
+}
+
 func ChatComplections(c *gin.Context) {
 	logger := log.FromContext(c.Request.Context())
 	var req chatCompletionsRequest
@@ -290,9 +354,27 @@ func ChatComplections(c *gin.Context) {
 		"context_size", contextSize,
 		"path", c.Request.URL.Path)
 
+	// Wrap response writer to capture response
+	capture := newResponseCapture(c.Writer)
+	c.Writer = capture
+
 	// Get the proxy for the vendor and serve the request
 	proxy := vendorManager.GetProxyForModel(model)
 	proxy.ServeHTTP(c.Writer, c.Request)
+
+	// Check if streaming by content-type
+	contentType := capture.Header().Get("Content-Type")
+	isStreaming := strings.Contains(contentType, "text/event-stream")
+
+	// Parse and log token usage
+	if usage := parseTokenUsage(capture.body.Bytes(), isStreaming); usage != nil {
+		logger.Info("chat completions token usage",
+			"model", model,
+			"vendor", vendorName,
+			"prompt_tokens", usage.PromptTokens,
+			"completion_tokens", usage.CompletionTokens,
+			"total_tokens", usage.TotalTokens)
+	}
 }
 
 func Pong(c *gin.Context) {
