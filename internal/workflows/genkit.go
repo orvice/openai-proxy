@@ -2,6 +2,7 @@ package workflows
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 
@@ -16,10 +17,17 @@ import (
 	"github.com/orvice/openapi-proxy/internal/config"
 )
 
+// Translation workflow errors
+var (
+	ErrEmptyInput          = errors.New("input text cannot be empty")
+	ErrUnsupportedLanguage = errors.New("unsupported language")
+)
+
 var (
 	g *genkit.Genkit
 
-	travelPlanFlow *core.Flow[TravelPlanInput, *TravelPlan, struct{}]
+	travelPlanFlow  *core.Flow[TravelPlanInput, *TravelPlan, struct{}]
+	translationFlow *core.Flow[TranslationInput, *TranslationOutput, struct{}]
 )
 
 func logMiddleware(req *http.Request, next option.MiddlewareNext) (*http.Response, error) {
@@ -127,6 +135,64 @@ type TravelPlan struct {
 	Tips           []string       `json:"tips"`
 }
 
+// translation workflow
+type TranslationInput struct {
+	Text           string `json:"text"`            // 要翻译的文本
+	SourceLanguage string `json:"source_language"` // 源语言（必填，使用 "auto" 表示自动检测）
+	TargetLanguage string `json:"target_language"` // 目标语言（必填）
+}
+
+type TranslationOutput struct {
+	TranslatedText string  `json:"translated_text"`      // 翻译后的文本
+	SourceLanguage string  `json:"source_language"`      // 检测到的源语言
+	TargetLanguage string  `json:"target_language"`      // 目标语言
+	Confidence     float64 `json:"confidence,omitempty"` // 翻译置信度（可选）
+}
+
+// SupportedLanguages 包含所有支持的语言（包括 auto 用于源语言自动检测）
+var SupportedLanguages = map[string]string{
+	"auto": "Auto-detect", // 仅用于 source_language
+	"zh":   "Chinese",
+	"en":   "English",
+	"ja":   "Japanese",
+	"ko":   "Korean",
+	"fr":   "French",
+	"de":   "German",
+	"es":   "Spanish",
+}
+
+// ValidTargetLanguages 不包含 "auto"，用于验证目标语言
+var ValidTargetLanguages = map[string]string{
+	"zh": "Chinese",
+	"en": "English",
+	"ja": "Japanese",
+	"ko": "Korean",
+	"fr": "French",
+	"de": "German",
+	"es": "Spanish",
+}
+
+// ValidateTranslationInput validates the translation input
+// Returns nil if valid, otherwise returns an appropriate error
+func ValidateTranslationInput(input TranslationInput) error {
+	// Validate text is non-empty (after trimming whitespace)
+	if strings.TrimSpace(input.Text) == "" {
+		return ErrEmptyInput
+	}
+
+	// Validate source_language is in SupportedLanguages (includes "auto")
+	if _, ok := SupportedLanguages[input.SourceLanguage]; !ok {
+		return ErrUnsupportedLanguage
+	}
+
+	// Validate target_language is in ValidTargetLanguages (excludes "auto")
+	if _, ok := ValidTargetLanguages[input.TargetLanguage]; !ok {
+		return ErrUnsupportedLanguage
+	}
+
+	return nil
+}
+
 func InitWorkflows() {
 	genkit.DefineFlow(g, "menuSuggestionFlow",
 		func(ctx context.Context, input MenuSuggestionInput) (*MenuItem, error) {
@@ -188,4 +254,61 @@ Please respond in %s.`
 			return plan, err
 		})
 
+	// Translation workflow
+	translationFlow = genkit.DefineFlow(g, "translationFlow",
+		func(ctx context.Context, input TranslationInput) (*TranslationOutput, error) {
+			logger := log.FromContext(ctx)
+			logger.Info("translationFlow started",
+				"source_language", input.SourceLanguage,
+				"target_language", input.TargetLanguage,
+				"text_length", len(input.Text))
+
+			// Validate input
+			if err := ValidateTranslationInput(input); err != nil {
+				logger.Error("translationFlow validation failed", "error", err)
+				return nil, err
+			}
+
+			// Build source language description for prompt
+			sourceLangDesc := "auto-detect the source language"
+			if input.SourceLanguage != "auto" {
+				if langName, ok := SupportedLanguages[input.SourceLanguage]; ok {
+					sourceLangDesc = langName
+				}
+			}
+
+			// Get target language name
+			targetLangName := ValidTargetLanguages[input.TargetLanguage]
+
+			prompt := `Translate the following text from %s to %s.
+If source language is "auto-detect the source language", please detect the source language automatically.
+
+Text to translate:
+%s
+
+Please respond with a JSON object containing:
+- translated_text: the translated text
+- source_language: the detected/confirmed source language code (zh, en, ja, ko, fr, de, es)
+- target_language: the target language code
+- confidence: a number between 0 and 1 indicating translation confidence`
+
+			output, metadata, err := genkit.GenerateData[TranslationOutput](ctx, g,
+				ai.WithPrompt(prompt, sourceLangDesc, targetLangName, input.Text),
+			)
+
+			if err != nil {
+				logger.Error("translationFlow failed", "error", err)
+				return nil, err
+			}
+
+			// Ensure target_language matches the requested one
+			output.TargetLanguage = input.TargetLanguage
+
+			logger.Info("translationFlow completed",
+				"source_language", output.SourceLanguage,
+				"target_language", output.TargetLanguage,
+				"usage", metadata.Usage)
+
+			return output, nil
+		})
 }
