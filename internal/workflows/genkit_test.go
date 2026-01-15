@@ -14,21 +14,202 @@ import (
 	oai "github.com/firebase/genkit/go/plugins/compat_oai"
 )
 
-func TestGenkit(t *testing.T) {
+// testingGenkit 初始化测试用的 genkit 实例
+// 如果环境变量未设置，返回 nil 并跳过测试
+func testingGenkit(t *testing.T) *genkit.Genkit {
+	t.Helper()
 	if os.Getenv("OPENAI_PROVIDER") == "" || os.Getenv("OPENAI_KEY") == "" || os.Getenv("OPENAI_HOST") == "" {
 		t.Skip("OPENAI_PROVIDER, OPENAI_KEY, OPENAI_HOST are not set")
 	}
+	model := os.Getenv("OPENAI_MODEL")
 	config := &oai.OpenAICompatible{
 		Provider: os.Getenv("OPENAI_PROVIDER"),
 		APIKey:   os.Getenv("OPENAI_KEY"),
 		BaseURL:  os.Getenv("OPENAI_HOST"),
 	}
-	g := genkit.Init(context.Background(), genkit.WithPlugins(config), genkit.WithDefaultModel("xiaomimimo/mimo-v2-flash"))
+	return genkit.Init(context.Background(), genkit.WithPlugins(config), genkit.WithDefaultModel(model))
+}
+
+func TestGenkit(t *testing.T) {
+	g := testingGenkit(t)
 	resp, err := genkit.Generate(context.Background(), g, ai.WithPrompt("Hello, world!"))
 	if err != nil {
 		t.Fatalf("Failed to generate: %v", err)
 	}
 	t.Logf("Response: %v", resp)
+}
+
+// TestTranslationWorkflow 测试翻译 workflow 的实际调用
+func TestTranslationWorkflow(t *testing.T) {
+	g := testingGenkit(t)
+
+	// 定义翻译 flow
+	translationFlow := genkit.DefineFlow(g, "testTranslationFlow",
+		func(ctx context.Context, input TranslationInput) (*TranslationOutput, error) {
+			if err := ValidateTranslationInput(input); err != nil {
+				return nil, err
+			}
+
+			sourceLangDesc := "auto-detect the source language"
+			if input.SourceLanguage != "auto" {
+				if langName, ok := SupportedLanguages[input.SourceLanguage]; ok {
+					sourceLangDesc = langName
+				}
+			}
+			targetLangName := ValidTargetLanguages[input.TargetLanguage]
+
+			prompt := `Translate the following text from %s to %s.
+Text to translate: %s
+Please respond with a JSON object containing:
+- translated_text: the translated text
+- source_language: the detected/confirmed source language code (zh, en, ja, ko, fr, de, es)
+- target_language: the target language code
+- confidence: a number between 0 and 1 indicating translation confidence`
+
+			output, _, err := genkit.GenerateData[TranslationOutput](ctx, g,
+				ai.WithPrompt(prompt, sourceLangDesc, targetLangName, input.Text),
+			)
+			if err != nil {
+				return nil, err
+			}
+			output.TargetLanguage = input.TargetLanguage
+			return output, nil
+		})
+
+	tests := []struct {
+		name           string
+		input          TranslationInput
+		wantErr        bool
+		expectedErr    error
+		validateOutput func(t *testing.T, output *TranslationOutput)
+	}{
+		{
+			name: "English to Chinese",
+			input: TranslationInput{
+				Text:           "Hello, world!",
+				SourceLanguage: "en",
+				TargetLanguage: "zh",
+			},
+			wantErr: false,
+			validateOutput: func(t *testing.T, output *TranslationOutput) {
+				if output.TranslatedText == "" {
+					t.Error("translated_text should not be empty")
+				}
+				if output.TargetLanguage != "zh" {
+					t.Errorf("target_language should be 'zh', got '%s'", output.TargetLanguage)
+				}
+			},
+		},
+		{
+			name: "Chinese to English",
+			input: TranslationInput{
+				Text:           "你好，世界！",
+				SourceLanguage: "zh",
+				TargetLanguage: "en",
+			},
+			wantErr: false,
+			validateOutput: func(t *testing.T, output *TranslationOutput) {
+				if output.TranslatedText == "" {
+					t.Error("translated_text should not be empty")
+				}
+				if output.TargetLanguage != "en" {
+					t.Errorf("target_language should be 'en', got '%s'", output.TargetLanguage)
+				}
+			},
+		},
+		{
+			name: "Auto detect source language",
+			input: TranslationInput{
+				Text:           "Bonjour le monde",
+				SourceLanguage: "auto",
+				TargetLanguage: "en",
+			},
+			wantErr: false,
+			validateOutput: func(t *testing.T, output *TranslationOutput) {
+				if output.TranslatedText == "" {
+					t.Error("translated_text should not be empty")
+				}
+				if output.SourceLanguage == "" {
+					t.Error("source_language should be detected")
+				}
+			},
+		},
+		{
+			name: "Empty input should fail",
+			input: TranslationInput{
+				Text:           "",
+				SourceLanguage: "en",
+				TargetLanguage: "zh",
+			},
+			wantErr:     true,
+			expectedErr: ErrEmptyInput,
+		},
+		{
+			name: "Whitespace only input should fail",
+			input: TranslationInput{
+				Text:           "   \t\n  ",
+				SourceLanguage: "en",
+				TargetLanguage: "zh",
+			},
+			wantErr:     true,
+			expectedErr: ErrEmptyInput,
+		},
+		{
+			name: "Unsupported source language should fail",
+			input: TranslationInput{
+				Text:           "Hello",
+				SourceLanguage: "xyz",
+				TargetLanguage: "zh",
+			},
+			wantErr:     true,
+			expectedErr: ErrUnsupportedLanguage,
+		},
+		{
+			name: "Unsupported target language should fail",
+			input: TranslationInput{
+				Text:           "Hello",
+				SourceLanguage: "en",
+				TargetLanguage: "xyz",
+			},
+			wantErr:     true,
+			expectedErr: ErrUnsupportedLanguage,
+		},
+		{
+			name: "Auto as target language should fail",
+			input: TranslationInput{
+				Text:           "Hello",
+				SourceLanguage: "en",
+				TargetLanguage: "auto",
+			},
+			wantErr:     true,
+			expectedErr: ErrUnsupportedLanguage,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			output, err := translationFlow.Run(context.Background(), tt.input)
+
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("expected error but got none")
+					return
+				}
+				if tt.expectedErr != nil && !errors.Is(err, tt.expectedErr) {
+					t.Errorf("expected error %v, got %v", tt.expectedErr, err)
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if tt.validateOutput != nil {
+				tt.validateOutput(t, output)
+			}
+		})
+	}
 }
 
 // Property-Based Tests for Translation Input Validation
