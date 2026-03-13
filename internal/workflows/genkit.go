@@ -14,7 +14,7 @@ import (
 	oai "github.com/firebase/genkit/go/plugins/compat_oai"
 	"github.com/firebase/genkit/go/plugins/googlegenai"
 	"github.com/openai/openai-go/option"
-	"github.com/orvice/openapi-proxy/internal/config"
+	"github.com/orvice/aiproxy/internal/config"
 )
 
 // Translation workflow errors

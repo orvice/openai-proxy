@@ -1,4 +1,4 @@
-module github.com/orvice/openapi-proxy
+module github.com/orvice/aiproxy
 
 go 1.24.1
 

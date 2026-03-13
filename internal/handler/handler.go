@@ -18,9 +18,9 @@ import (
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/responses"
 	"github.com/openai/openai-go/shared"
-	"github.com/orvice/openapi-proxy/internal/config"
-	"github.com/orvice/openapi-proxy/internal/vendor"
-	"github.com/orvice/openapi-proxy/internal/workflows"
+	"github.com/orvice/aiproxy/internal/config"
+	"github.com/orvice/aiproxy/internal/vendor"
+	"github.com/orvice/aiproxy/internal/workflows"
 )
 
 var (

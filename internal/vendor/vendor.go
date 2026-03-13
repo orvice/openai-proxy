@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"butterfly.orx.me/core/log"
-	"github.com/orvice/openapi-proxy/internal/config"
+	"github.com/orvice/aiproxy/internal/config"
 )
 
 // ModelCacheItem represents a cached model list with an expiration time

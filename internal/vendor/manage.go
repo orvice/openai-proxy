@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/orvice/openapi-proxy/internal/config"
+	"github.com/orvice/aiproxy/internal/config"
 )
 
 type VendorManager struct {

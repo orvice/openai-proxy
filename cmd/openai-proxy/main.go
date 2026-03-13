@@ -3,9 +3,9 @@ package main
 import (
 	"butterfly.orx.me/core"
 	"butterfly.orx.me/core/app"
-	"github.com/orvice/openapi-proxy/internal/config"
-	"github.com/orvice/openapi-proxy/internal/handler"
-	"github.com/orvice/openapi-proxy/internal/workflows"
+	"github.com/orvice/aiproxy/internal/config"
+	"github.com/orvice/aiproxy/internal/handler"
+	"github.com/orvice/aiproxy/internal/workflows"
 )
 
 func main() {
