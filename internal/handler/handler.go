@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -127,12 +128,43 @@ func MCPGateway(c *gin.Context) {
 	}
 	c.Request.Header.Set("X-Mcp-Route-Prefix", routePrefix)
 
+	start := time.Now()
+	rpcMethods, rpcIDs, batchSize := parseMCPRequestMeta(c)
 	logger.Info("mcp gateway request",
 		"method", c.Request.Method,
 		"server", resolvedName,
+		"rpc_methods", rpcMethods,
+		"rpc_ids", rpcIDs,
+		"batch_size", batchSize,
 		"path", c.Request.URL.Path)
 
+	capture := newResponseCapture(c.Writer)
+	c.Writer = capture
+
 	proxy.ServeHTTP(c.Writer, c.Request)
+
+	attrs := []any{
+		"method", c.Request.Method,
+		"server", resolvedName,
+		"status", capture.Status(),
+		"duration_ms", time.Since(start).Milliseconds(),
+		"path", c.Request.URL.Path,
+	}
+	if len(rpcMethods) > 0 {
+		attrs = append(attrs, "rpc_methods", rpcMethods)
+	}
+	if len(rpcIDs) > 0 {
+		attrs = append(attrs, "rpc_ids", rpcIDs)
+	}
+	if batchSize > 0 {
+		attrs = append(attrs, "batch_size", batchSize)
+	}
+	if rpcErr := parseMCPErrorResponse(capture.body.Bytes()); rpcErr != nil {
+		attrs = append(attrs,
+			"rpc_error_code", rpcErr.Code,
+			"rpc_error_message", rpcErr.Message)
+	}
+	logger.Info("mcp gateway response", attrs...)
 }
 
 func proxy(c *gin.Context) {
@@ -355,6 +387,107 @@ type tokenUsage struct {
 // chatCompletionResponse for parsing usage from response
 type chatCompletionResponse struct {
 	Usage *tokenUsage `json:"usage"`
+}
+
+type mcpRPCMessage struct {
+	ID     any    `json:"id"`
+	Method string `json:"method"`
+}
+
+type mcpRPCErrorEnvelope struct {
+	Error *mcpRPCError `json:"error"`
+}
+
+type mcpRPCError struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+}
+
+func parseMCPRequestMeta(c *gin.Context) ([]string, []string, int) {
+	if c.Request.Body == nil {
+		return nil, nil, 0
+	}
+	if c.Request.Method != http.MethodPost && c.Request.Method != http.MethodPut && c.Request.Method != http.MethodPatch {
+		return nil, nil, 0
+	}
+
+	body, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		return nil, nil, 0
+	}
+	c.Request.Body = io.NopCloser(bytes.NewBuffer(body))
+
+	if len(bytes.TrimSpace(body)) == 0 {
+		return nil, nil, 0
+	}
+
+	var single mcpRPCMessage
+	if err := json.Unmarshal(body, &single); err == nil {
+		return compactMCPMethods([]string{single.Method}), compactMCPIDs([]any{single.ID}), 1
+	}
+
+	var batch []mcpRPCMessage
+	if err := json.Unmarshal(body, &batch); err == nil {
+		methods := make([]string, 0, len(batch))
+		ids := make([]any, 0, len(batch))
+		for _, item := range batch {
+			methods = append(methods, item.Method)
+			ids = append(ids, item.ID)
+		}
+		return compactMCPMethods(methods), compactMCPIDs(ids), len(batch)
+	}
+
+	return nil, nil, 0
+}
+
+func compactMCPMethods(methods []string) []string {
+	result := make([]string, 0, len(methods))
+	for _, method := range methods {
+		if method == "" {
+			continue
+		}
+		result = append(result, method)
+	}
+	return result
+}
+
+func compactMCPIDs(ids []any) []string {
+	result := make([]string, 0, len(ids))
+	for _, id := range ids {
+		switch v := id.(type) {
+		case nil:
+			continue
+		case string:
+			if v != "" {
+				result = append(result, v)
+			}
+		default:
+			result = append(result, fmt.Sprint(v))
+		}
+	}
+	return result
+}
+
+func parseMCPErrorResponse(body []byte) *mcpRPCError {
+	if len(bytes.TrimSpace(body)) == 0 {
+		return nil
+	}
+
+	var single mcpRPCErrorEnvelope
+	if err := json.Unmarshal(body, &single); err == nil && single.Error != nil {
+		return single.Error
+	}
+
+	var batch []mcpRPCErrorEnvelope
+	if err := json.Unmarshal(body, &batch); err == nil {
+		for _, item := range batch {
+			if item.Error != nil {
+				return item.Error
+			}
+		}
+	}
+
+	return nil
 }
 
 // parseTokenUsage extracts token usage from response body (handles both streaming and non-streaming)
