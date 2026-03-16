@@ -9,10 +9,12 @@ var (
 )
 
 type Config struct {
-	GoogleAIAPIKey string   `yaml:"googleAIAPIKey"`
-	Models         []Model  `yaml:"models"`
-	Vendors        []Vendor `yaml:"vendors"`
-	DefaultVendor  string   `yaml:"defaultVendor"`
+	GoogleAIAPIKey   string      `yaml:"googleAIAPIKey"`
+	Models           []Model     `yaml:"models"`
+	Vendors          []Vendor    `yaml:"vendors"`
+	DefaultVendor    string      `yaml:"defaultVendor"`
+	MCPServers       []MCPServer `yaml:"mcpServers"`
+	DefaultMCPServer string      `yaml:"defaultMcpServer"`
 
 	WorkflowVender string `yaml:"workflowVender"`
 }
@@ -34,6 +36,13 @@ type Vendor struct {
 	Key          string   `yaml:"key"`
 	Keys         []string `yaml:"keys"`
 	DefaultModel string   `yaml:"defaultModel"`
+}
+
+type MCPServer struct {
+	Name    string            `yaml:"name"`
+	Host    string            `yaml:"host"`
+	Key     string            `yaml:"key"`
+	Headers map[string]string `yaml:"headers"`
 }
 
 const (

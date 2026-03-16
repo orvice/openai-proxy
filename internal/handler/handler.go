@@ -19,6 +19,7 @@ import (
 	"github.com/openai/openai-go/responses"
 	"github.com/openai/openai-go/shared"
 	"github.com/orvice/aiproxy/internal/config"
+	"github.com/orvice/aiproxy/internal/mcp"
 	"github.com/orvice/aiproxy/internal/vendor"
 	"github.com/orvice/aiproxy/internal/workflows"
 )
@@ -26,6 +27,7 @@ import (
 var (
 	// VendorManager instance
 	vendorManager *vendor.VendorManager
+	mcpManager    *mcp.Manager
 )
 
 // These functions are no longer needed as they are now part of the vendor.Vender implementation
@@ -33,11 +35,15 @@ var (
 func initVendorManager() {
 	// Create a new vendor manager with the configuration
 	vendorManager = vendor.NewVendorManager(config.Conf)
+	mcpManager = mcp.NewManager(config.Conf)
 
 	// Initialize the vendor manager
 	err := vendorManager.Initialize()
 	if err != nil {
 		slog.Error("Failed to initialize vendor manager", "error", err)
+	}
+	if err := mcpManager.Initialize(); err != nil {
+		slog.Error("Failed to initialize mcp manager", "error", err)
 	}
 	// Still initialize Gemini separately since it's not part of the vendor manager yet
 	initGeminiProxy()
@@ -64,6 +70,10 @@ func Router(r *gin.Engine) {
 	r.Any("/v1/responses/:id", ResponseByID)
 	r.Any("/v1beta/models/:model", geminiHandler)
 	r.Any("/v1beta/models", geminiHandler)
+	r.GET("/mcp/servers", MCPServers)
+	r.Any("/mcp", MCPGateway)
+	r.Any("/mcp/:server", MCPGateway)
+	r.Any("/mcp/:server/*path", MCPGateway)
 
 	for _, flow := range genkit.ListFlows(workflows.Genkit()) {
 		r.POST("/v1/workflows/"+flow.Name(), func(c *gin.Context) {
@@ -72,6 +82,57 @@ func Router(r *gin.Engine) {
 	}
 
 	r.NoRoute(proxy)
+}
+
+func MCPServers(c *gin.Context) {
+	if mcpManager == nil || !mcpManager.HasServers() {
+		c.JSON(http.StatusOK, gin.H{
+			"data": []string{},
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"data": mcpManager.ListServerNames(),
+	})
+}
+
+func MCPGateway(c *gin.Context) {
+	logger := log.FromContext(c.Request.Context())
+	if mcpManager == nil || !mcpManager.HasServers() {
+		c.JSON(http.StatusNotFound, gin.H{"error": "no mcp servers configured"})
+		return
+	}
+
+	serverName := c.Param("server")
+	if serverName == "" {
+		serverName = c.Request.Header.Get("x-mcp-server")
+	}
+
+	resolvedName, ok := mcpManager.ResolveServerName(serverName)
+	if !ok {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "unknown mcp server"})
+		return
+	}
+
+	proxy, ok := mcpManager.GetProxy(resolvedName)
+	if !ok {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "mcp proxy unavailable"})
+		return
+	}
+
+	routePrefix := "/mcp"
+	if c.Param("server") != "" {
+		routePrefix = "/mcp/" + c.Param("server")
+	}
+	c.Request.Header.Set("X-Mcp-Route-Prefix", routePrefix)
+
+	logger.Info("mcp gateway request",
+		"method", c.Request.Method,
+		"server", resolvedName,
+		"path", c.Request.URL.Path)
+
+	proxy.ServeHTTP(c.Writer, c.Request)
 }
 
 func proxy(c *gin.Context) {
