@@ -23,6 +23,10 @@ import (
 	"github.com/orvice/aiproxy/internal/mcp"
 	"github.com/orvice/aiproxy/internal/vendor"
 	"github.com/orvice/aiproxy/internal/workflows"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
 var (
@@ -62,6 +66,7 @@ func loggingMiddleware(c *gin.Context) {
 
 func Router(r *gin.Engine) {
 	r.Use(loggingMiddleware)
+	r.Use(otelgin.Middleware("aiproxy"))
 	initVendorManager()
 
 	r.GET("/", Pong)
@@ -130,6 +135,20 @@ func MCPGateway(c *gin.Context) {
 
 	start := time.Now()
 	rpcMethods, rpcIDs, batchSize := parseMCPRequestMeta(c)
+	span := trace.SpanFromContext(c.Request.Context())
+	span.SetAttributes(
+		attribute.String("mcp.server", resolvedName),
+		attribute.String("mcp.route_prefix", routePrefix),
+		attribute.String("mcp.request.path", c.Request.URL.Path),
+		attribute.String("mcp.http.method", c.Request.Method),
+		attribute.Int("mcp.batch_size", batchSize),
+	)
+	if len(rpcMethods) > 0 {
+		span.SetAttributes(attribute.StringSlice("mcp.rpc.methods", rpcMethods))
+	}
+	if len(rpcIDs) > 0 {
+		span.SetAttributes(attribute.StringSlice("mcp.rpc.ids", rpcIDs))
+	}
 	logger.Info("mcp gateway request",
 		"method", c.Request.Method,
 		"server", resolvedName,
@@ -163,6 +182,17 @@ func MCPGateway(c *gin.Context) {
 		attrs = append(attrs,
 			"rpc_error_code", rpcErr.Code,
 			"rpc_error_message", rpcErr.Message)
+		span.SetAttributes(
+			attribute.Int("mcp.rpc.error_code", rpcErr.Code),
+			attribute.String("mcp.rpc.error_message", rpcErr.Message),
+		)
+		span.SetStatus(codes.Error, rpcErr.Message)
+	}
+	if capture.Status() >= http.StatusBadRequest {
+		span.SetStatus(codes.Error, http.StatusText(capture.Status()))
+		span.SetAttributes(attribute.Int("mcp.http.status_code", capture.Status()))
+	} else {
+		span.SetAttributes(attribute.Int("mcp.http.status_code", capture.Status()))
 	}
 	logger.Info("mcp gateway response", attrs...)
 }

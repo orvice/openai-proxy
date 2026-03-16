@@ -17,6 +17,7 @@ import (
 
 	"butterfly.orx.me/core/log"
 	"github.com/orvice/aiproxy/internal/config"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 // ModelCacheItem represents a cached model list with an expiration time
@@ -80,6 +81,7 @@ func (v *Vender) ReverseProxy() (*httputil.ReverseProxy, error) {
 
 	// Create a new reverse proxy
 	proxy := httputil.NewSingleHostReverseProxy(url)
+	proxy.Transport = otelhttp.NewTransport(http.DefaultTransport)
 
 	// Store the original director for request modification
 	originalDirector := proxy.Director

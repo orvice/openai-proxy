@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/orvice/aiproxy/internal/config"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 const routePrefixHeader = "X-Mcp-Route-Prefix"
@@ -111,6 +112,7 @@ func newReverseProxy(server config.MCPServer) (*httputil.ReverseProxy, error) {
 	}
 
 	proxy := httputil.NewSingleHostReverseProxy(target)
+	proxy.Transport = otelhttp.NewTransport(http.DefaultTransport)
 	originalDirector := proxy.Director
 
 	proxy.Director = func(req *http.Request) {
