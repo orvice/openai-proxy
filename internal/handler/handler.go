@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -19,13 +20,19 @@ import (
 	"github.com/openai/openai-go/responses"
 	"github.com/openai/openai-go/shared"
 	"github.com/orvice/aiproxy/internal/config"
+	"github.com/orvice/aiproxy/internal/mcp"
 	"github.com/orvice/aiproxy/internal/vendor"
 	"github.com/orvice/aiproxy/internal/workflows"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
 var (
 	// VendorManager instance
 	vendorManager *vendor.VendorManager
+	mcpManager    *mcp.Manager
 )
 
 // These functions are no longer needed as they are now part of the vendor.Vender implementation
@@ -33,11 +40,15 @@ var (
 func initVendorManager() {
 	// Create a new vendor manager with the configuration
 	vendorManager = vendor.NewVendorManager(config.Conf)
+	mcpManager = mcp.NewManager(config.Conf)
 
 	// Initialize the vendor manager
 	err := vendorManager.Initialize()
 	if err != nil {
 		slog.Error("Failed to initialize vendor manager", "error", err)
+	}
+	if err := mcpManager.Initialize(); err != nil {
+		slog.Error("Failed to initialize mcp manager", "error", err)
 	}
 	// Still initialize Gemini separately since it's not part of the vendor manager yet
 	initGeminiProxy()
@@ -55,6 +66,7 @@ func loggingMiddleware(c *gin.Context) {
 
 func Router(r *gin.Engine) {
 	r.Use(loggingMiddleware)
+	r.Use(otelgin.Middleware("aiproxy"))
 	initVendorManager()
 
 	r.GET("/", Pong)
@@ -64,6 +76,10 @@ func Router(r *gin.Engine) {
 	r.Any("/v1/responses/:id", ResponseByID)
 	r.Any("/v1beta/models/:model", geminiHandler)
 	r.Any("/v1beta/models", geminiHandler)
+	r.GET("/mcp/servers", MCPServers)
+	r.Any("/mcp", MCPGateway)
+	r.Any("/mcp/:server", MCPGateway)
+	r.Any("/mcp/:server/*path", MCPGateway)
 
 	for _, flow := range genkit.ListFlows(workflows.Genkit()) {
 		r.POST("/v1/workflows/"+flow.Name(), func(c *gin.Context) {
@@ -72,6 +88,113 @@ func Router(r *gin.Engine) {
 	}
 
 	r.NoRoute(proxy)
+}
+
+func MCPServers(c *gin.Context) {
+	if mcpManager == nil || !mcpManager.HasServers() {
+		c.JSON(http.StatusOK, gin.H{
+			"data": []string{},
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"data": mcpManager.ListServerNames(),
+	})
+}
+
+func MCPGateway(c *gin.Context) {
+	logger := log.FromContext(c.Request.Context())
+	if mcpManager == nil || !mcpManager.HasServers() {
+		c.JSON(http.StatusNotFound, gin.H{"error": "no mcp servers configured"})
+		return
+	}
+
+	serverName := c.Param("server")
+	if serverName == "" {
+		serverName = c.Request.Header.Get("x-mcp-server")
+	}
+
+	resolvedName, ok := mcpManager.ResolveServerName(serverName)
+	if !ok {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "unknown mcp server"})
+		return
+	}
+
+	proxy, ok := mcpManager.GetProxy(resolvedName)
+	if !ok {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "mcp proxy unavailable"})
+		return
+	}
+
+	routePrefix := "/mcp"
+	if c.Param("server") != "" {
+		routePrefix = "/mcp/" + c.Param("server")
+	}
+	c.Request.Header.Set("X-Mcp-Route-Prefix", routePrefix)
+
+	start := time.Now()
+	rpcMethods, rpcIDs, batchSize := parseMCPRequestMeta(c)
+	span := trace.SpanFromContext(c.Request.Context())
+	span.SetAttributes(
+		attribute.String("mcp.server", resolvedName),
+		attribute.String("mcp.route_prefix", routePrefix),
+		attribute.String("mcp.request.path", c.Request.URL.Path),
+		attribute.String("mcp.http.method", c.Request.Method),
+		attribute.Int("mcp.batch_size", batchSize),
+	)
+	if len(rpcMethods) > 0 {
+		span.SetAttributes(attribute.StringSlice("mcp.rpc.methods", rpcMethods))
+	}
+	if len(rpcIDs) > 0 {
+		span.SetAttributes(attribute.StringSlice("mcp.rpc.ids", rpcIDs))
+	}
+	logger.Info("mcp gateway request",
+		"method", c.Request.Method,
+		"server", resolvedName,
+		"rpc_methods", rpcMethods,
+		"rpc_ids", rpcIDs,
+		"batch_size", batchSize,
+		"path", c.Request.URL.Path)
+
+	capture := newResponseCapture(c.Writer)
+	c.Writer = capture
+
+	proxy.ServeHTTP(c.Writer, c.Request)
+
+	attrs := []any{
+		"method", c.Request.Method,
+		"server", resolvedName,
+		"status", capture.Status(),
+		"duration_ms", time.Since(start).Milliseconds(),
+		"path", c.Request.URL.Path,
+	}
+	if len(rpcMethods) > 0 {
+		attrs = append(attrs, "rpc_methods", rpcMethods)
+	}
+	if len(rpcIDs) > 0 {
+		attrs = append(attrs, "rpc_ids", rpcIDs)
+	}
+	if batchSize > 0 {
+		attrs = append(attrs, "batch_size", batchSize)
+	}
+	if rpcErr := parseMCPErrorResponse(capture.body.Bytes()); rpcErr != nil {
+		attrs = append(attrs,
+			"rpc_error_code", rpcErr.Code,
+			"rpc_error_message", rpcErr.Message)
+		span.SetAttributes(
+			attribute.Int("mcp.rpc.error_code", rpcErr.Code),
+			attribute.String("mcp.rpc.error_message", rpcErr.Message),
+		)
+		span.SetStatus(codes.Error, rpcErr.Message)
+	}
+	if capture.Status() >= http.StatusBadRequest {
+		span.SetStatus(codes.Error, http.StatusText(capture.Status()))
+		span.SetAttributes(attribute.Int("mcp.http.status_code", capture.Status()))
+	} else {
+		span.SetAttributes(attribute.Int("mcp.http.status_code", capture.Status()))
+	}
+	logger.Info("mcp gateway response", attrs...)
 }
 
 func proxy(c *gin.Context) {
@@ -294,6 +417,107 @@ type tokenUsage struct {
 // chatCompletionResponse for parsing usage from response
 type chatCompletionResponse struct {
 	Usage *tokenUsage `json:"usage"`
+}
+
+type mcpRPCMessage struct {
+	ID     any    `json:"id"`
+	Method string `json:"method"`
+}
+
+type mcpRPCErrorEnvelope struct {
+	Error *mcpRPCError `json:"error"`
+}
+
+type mcpRPCError struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+}
+
+func parseMCPRequestMeta(c *gin.Context) ([]string, []string, int) {
+	if c.Request.Body == nil {
+		return nil, nil, 0
+	}
+	if c.Request.Method != http.MethodPost && c.Request.Method != http.MethodPut && c.Request.Method != http.MethodPatch {
+		return nil, nil, 0
+	}
+
+	body, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		return nil, nil, 0
+	}
+	c.Request.Body = io.NopCloser(bytes.NewBuffer(body))
+
+	if len(bytes.TrimSpace(body)) == 0 {
+		return nil, nil, 0
+	}
+
+	var single mcpRPCMessage
+	if err := json.Unmarshal(body, &single); err == nil {
+		return compactMCPMethods([]string{single.Method}), compactMCPIDs([]any{single.ID}), 1
+	}
+
+	var batch []mcpRPCMessage
+	if err := json.Unmarshal(body, &batch); err == nil {
+		methods := make([]string, 0, len(batch))
+		ids := make([]any, 0, len(batch))
+		for _, item := range batch {
+			methods = append(methods, item.Method)
+			ids = append(ids, item.ID)
+		}
+		return compactMCPMethods(methods), compactMCPIDs(ids), len(batch)
+	}
+
+	return nil, nil, 0
+}
+
+func compactMCPMethods(methods []string) []string {
+	result := make([]string, 0, len(methods))
+	for _, method := range methods {
+		if method == "" {
+			continue
+		}
+		result = append(result, method)
+	}
+	return result
+}
+
+func compactMCPIDs(ids []any) []string {
+	result := make([]string, 0, len(ids))
+	for _, id := range ids {
+		switch v := id.(type) {
+		case nil:
+			continue
+		case string:
+			if v != "" {
+				result = append(result, v)
+			}
+		default:
+			result = append(result, fmt.Sprint(v))
+		}
+	}
+	return result
+}
+
+func parseMCPErrorResponse(body []byte) *mcpRPCError {
+	if len(bytes.TrimSpace(body)) == 0 {
+		return nil
+	}
+
+	var single mcpRPCErrorEnvelope
+	if err := json.Unmarshal(body, &single); err == nil && single.Error != nil {
+		return single.Error
+	}
+
+	var batch []mcpRPCErrorEnvelope
+	if err := json.Unmarshal(body, &batch); err == nil {
+		for _, item := range batch {
+			if item.Error != nil {
+				return item.Error
+			}
+		}
+	}
+
+	return nil
 }
 
 // parseTokenUsage extracts token usage from response body (handles both streaming and non-streaming)

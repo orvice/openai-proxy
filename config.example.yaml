@@ -1,0 +1,47 @@
+# Example configuration for openai-proxy.
+# Replace placeholder keys and hosts before use.
+
+defaultVendor: openai
+workflowVender: openai
+defaultMcpServer: filesystem
+
+vendors:
+  - name: openai
+    host: https://api.openai.com
+    key: sk-your-openai-key
+    defaultModel: gpt-4.1-mini
+
+  - name: openrouter
+    host: https://openrouter.ai/api
+    key: sk-or-v1-your-openrouter-key
+    hideModels: false
+    defaultModel: openai/gpt-4.1-mini
+
+models:
+  - name: gpt-4.1
+    regex: ^gpt-4\.1$
+    slug: gpt-4.1
+    vendor: openai
+
+  - name: gpt-4.1-mini
+    regex: ^gpt-4\.1-mini$
+    slug: gpt-4.1-mini
+    vendor: openai
+
+  - name: openrouter-gpt-4.1-mini
+    regex: ^openai/gpt-4\.1-mini$
+    slug: openai/gpt-4.1-mini
+    vendor: openrouter
+
+mcpServers:
+  - name: filesystem
+    host: https://mcp.example.com/mcp
+    key: sk-your-mcp-key
+    headers:
+      X-Workspace-ID: demo
+      X-Client-Name: openai-proxy
+
+  - name: internal-tools
+    host: https://mcp-internal.example.com/gateway
+    headers:
+      X-Env: production
