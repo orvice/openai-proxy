@@ -1,0 +1,131 @@
+syntax = "proto3";
+
+package llm.v1;
+
+import "google/api/annotations.proto";
+import "google/protobuf/timestamp.proto";
+import "llm/v1/common.proto";
+
+option go_package = "github.com/orvice/aiproxy/pkg/proto/llm/v1;llmv1";
+
+service AuditService {
+  rpc ListAuditEvents(ListAuditEventsRequest) returns (ListAuditEventsResponse) {
+    option (google.api.http) = {get: "/admin/v1/auditEvents"};
+  }
+  rpc GetRequestTrace(GetRequestTraceRequest) returns (GetRequestTraceResponse) {
+    option (google.api.http) = {get: "/admin/v1/requestTraces/{request_id}"};
+  }
+  rpc CreateExportJob(CreateExportJobRequest) returns (CreateExportJobResponse) {
+    option (google.api.http) = {
+      post: "/admin/v1/exportJobs"
+      body: "*"
+    };
+  }
+  rpc GetExportJob(GetExportJobRequest) returns (GetExportJobResponse) {
+    option (google.api.http) = {get: "/admin/v1/exportJobs/{export_job_id}"};
+  }
+  rpc ListExportJobs(ListExportJobsRequest) returns (ListExportJobsResponse) {
+    option (google.api.http) = {get: "/admin/v1/exportJobs"};
+  }
+}
+
+message AuditEvent {
+  string id = 1;
+  string tenant_id = 2;
+  string project_id = 3;
+  string actor_id = 4;
+  string actor_type = 5;
+  AuditAction action = 6;
+  AuditOutcome outcome = 7;
+  string target_resource_type = 8;
+  string target_resource_id = 9;
+  string request_id = 10;
+  string message = 11;
+  google.protobuf.Timestamp occurred_at = 12;
+  Metadata metadata = 13;
+}
+
+message RequestTrace {
+  string request_id = 1;
+  string tenant_id = 2;
+  string project_id = 3;
+  string gateway_key_id = 4;
+  string logical_model_id = 5;
+  string vendor_id = 6;
+  string upstream_model = 7;
+  ResourceStatus status = 8;
+  string failure_category = 9;
+  string failure_message = 10;
+  int64 latency_ms = 11;
+  int64 total_tokens = 12;
+  google.protobuf.Timestamp started_at = 13;
+  google.protobuf.Timestamp completed_at = 14;
+  Metadata metadata = 15;
+}
+
+message ExportJob {
+  string id = 1;
+  string tenant_id = 2;
+  string project_id = 3;
+  string dataset = 4;
+  TimeRange time_range = 5;
+  ExportJobStatus status = 6;
+  string download_url = 7;
+  string format = 8;
+  google.protobuf.Timestamp expires_at = 9;
+  AuditInfo audit_info = 10;
+}
+
+message ListAuditEventsRequest {
+  string tenant_id = 1;
+  string project_id = 2;
+  string actor_id = 3;
+  string target_resource_type = 4;
+  string target_resource_id = 5;
+  AuditAction action = 6;
+  AuditOutcome outcome = 7;
+  TimeRange time_range = 8;
+  PageRequest page = 9;
+}
+
+message ListAuditEventsResponse {
+  repeated AuditEvent audit_events = 1;
+  PageResponse page = 2;
+}
+
+message GetRequestTraceRequest {
+  string request_id = 1;
+}
+
+message GetRequestTraceResponse {
+  RequestTrace request_trace = 1;
+}
+
+message CreateExportJobRequest {
+  ExportJob export_job = 1;
+}
+
+message CreateExportJobResponse {
+  ExportJob export_job = 1;
+}
+
+message GetExportJobRequest {
+  string export_job_id = 1;
+}
+
+message GetExportJobResponse {
+  ExportJob export_job = 1;
+}
+
+message ListExportJobsRequest {
+  string tenant_id = 1;
+  string project_id = 2;
+  string dataset = 3;
+  ExportJobStatus status = 4;
+  PageRequest page = 5;
+}
+
+message ListExportJobsResponse {
+  repeated ExportJob export_jobs = 1;
+  PageResponse page = 2;
+}

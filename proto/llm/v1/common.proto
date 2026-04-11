@@ -1,0 +1,177 @@
+syntax = "proto3";
+
+package llm.v1;
+
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/orvice/aiproxy/pkg/proto/llm/v1;llmv1";
+
+message PageRequest {
+  int32 page_size = 1;
+  string page_token = 2;
+}
+
+message PageResponse {
+  string next_page_token = 1;
+  int64 total_size = 2;
+}
+
+message TimeRange {
+  google.protobuf.Timestamp start_time = 1;
+  google.protobuf.Timestamp end_time = 2;
+}
+
+message Money {
+  string currency_code = 1;
+  string units = 2;
+}
+
+message ResourceRef {
+  string id = 1;
+  string name = 2;
+}
+
+message AuditInfo {
+  string created_by = 1;
+  google.protobuf.Timestamp created_at = 2;
+  string updated_by = 3;
+  google.protobuf.Timestamp updated_at = 4;
+}
+
+message Condition {
+  string type = 1;
+  bool status = 2;
+  string reason = 3;
+  string message = 4;
+  google.protobuf.Timestamp last_transition_time = 5;
+}
+
+message Metadata {
+  map<string, string> labels = 1;
+  map<string, string> annotations = 2;
+  google.protobuf.Struct extras = 3;
+}
+
+enum ResourceStatus {
+  RESOURCE_STATUS_UNSPECIFIED = 0;
+  RESOURCE_STATUS_ACTIVE = 1;
+  RESOURCE_STATUS_DISABLED = 2;
+  RESOURCE_STATUS_SUSPENDED = 3;
+  RESOURCE_STATUS_ARCHIVED = 4;
+  RESOURCE_STATUS_DELETED = 5;
+}
+
+enum MembershipRole {
+  MEMBERSHIP_ROLE_UNSPECIFIED = 0;
+  MEMBERSHIP_ROLE_OWNER = 1;
+  MEMBERSHIP_ROLE_ADMIN = 2;
+  MEMBERSHIP_ROLE_BILLING_ADMIN = 3;
+  MEMBERSHIP_ROLE_DEVELOPER = 4;
+  MEMBERSHIP_ROLE_VIEWER = 5;
+}
+
+enum KeyStatus {
+  KEY_STATUS_UNSPECIFIED = 0;
+  KEY_STATUS_ACTIVE = 1;
+  KEY_STATUS_DISABLED = 2;
+  KEY_STATUS_REVOKED = 3;
+  KEY_STATUS_EXPIRED = 4;
+}
+
+enum VendorType {
+  VENDOR_TYPE_UNSPECIFIED = 0;
+  VENDOR_TYPE_OPENAI = 1;
+  VENDOR_TYPE_AZURE_OPENAI = 2;
+  VENDOR_TYPE_ANTHROPIC = 3;
+  VENDOR_TYPE_GOOGLE = 4;
+  VENDOR_TYPE_OPENROUTER = 5;
+  VENDOR_TYPE_SILICONFLOW = 6;
+  VENDOR_TYPE_CUSTOM_OPENAI_COMPATIBLE = 7;
+}
+
+enum CredentialStatus {
+  CREDENTIAL_STATUS_UNSPECIFIED = 0;
+  CREDENTIAL_STATUS_ACTIVE = 1;
+  CREDENTIAL_STATUS_DISABLED = 2;
+  CREDENTIAL_STATUS_ROTATING = 3;
+  CREDENTIAL_STATUS_REVOKED = 4;
+}
+
+enum ModelVisibility {
+  MODEL_VISIBILITY_UNSPECIFIED = 0;
+  MODEL_VISIBILITY_PRIVATE = 1;
+  MODEL_VISIBILITY_TENANT = 2;
+  MODEL_VISIBILITY_PUBLIC = 3;
+}
+
+enum RoutingStrategy {
+  ROUTING_STRATEGY_UNSPECIFIED = 0;
+  ROUTING_STRATEGY_PRIORITY = 1;
+  ROUTING_STRATEGY_WEIGHTED = 2;
+  ROUTING_STRATEGY_FAILOVER = 3;
+  ROUTING_STRATEGY_LATENCY_AWARE = 4;
+  ROUTING_STRATEGY_COST_AWARE = 5;
+}
+
+enum QuotaPeriod {
+  QUOTA_PERIOD_UNSPECIFIED = 0;
+  QUOTA_PERIOD_MINUTE = 1;
+  QUOTA_PERIOD_HOUR = 2;
+  QUOTA_PERIOD_DAY = 3;
+  QUOTA_PERIOD_MONTH = 4;
+}
+
+enum BillingMode {
+  BILLING_MODE_UNSPECIFIED = 0;
+  BILLING_MODE_PREPAID = 1;
+  BILLING_MODE_POSTPAID = 2;
+  BILLING_MODE_HYBRID = 3;
+}
+
+enum InvoiceStatus {
+  INVOICE_STATUS_UNSPECIFIED = 0;
+  INVOICE_STATUS_DRAFT = 1;
+  INVOICE_STATUS_OPEN = 2;
+  INVOICE_STATUS_PAID = 3;
+  INVOICE_STATUS_VOID = 4;
+  INVOICE_STATUS_OVERDUE = 5;
+}
+
+enum AuditAction {
+  AUDIT_ACTION_UNSPECIFIED = 0;
+  AUDIT_ACTION_CREATED = 1;
+  AUDIT_ACTION_UPDATED = 2;
+  AUDIT_ACTION_DELETED = 3;
+  AUDIT_ACTION_ARCHIVED = 4;
+  AUDIT_ACTION_SUSPENDED = 5;
+  AUDIT_ACTION_RESTORED = 6;
+  AUDIT_ACTION_ISSUED = 7;
+  AUDIT_ACTION_ROTATED = 8;
+  AUDIT_ACTION_REVOKED = 9;
+  AUDIT_ACTION_ALLOWED = 10;
+  AUDIT_ACTION_DENIED = 11;
+  AUDIT_ACTION_EXPORTED = 12;
+}
+
+enum AuditOutcome {
+  AUDIT_OUTCOME_UNSPECIFIED = 0;
+  AUDIT_OUTCOME_SUCCEEDED = 1;
+  AUDIT_OUTCOME_FAILED = 2;
+  AUDIT_OUTCOME_PARTIAL = 3;
+}
+
+enum ExportJobStatus {
+  EXPORT_JOB_STATUS_UNSPECIFIED = 0;
+  EXPORT_JOB_STATUS_PENDING = 1;
+  EXPORT_JOB_STATUS_RUNNING = 2;
+  EXPORT_JOB_STATUS_SUCCEEDED = 3;
+  EXPORT_JOB_STATUS_FAILED = 4;
+  EXPORT_JOB_STATUS_CANCELED = 5;
+}
+
+message ErrorDetail {
+  string code = 1;
+  string message = 2;
+  map<string, string> fields = 3;
+}

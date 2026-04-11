@@ -1,0 +1,208 @@
+syntax = "proto3";
+
+package llm.v1;
+
+import "google/api/annotations.proto";
+import "google/protobuf/field_mask.proto";
+import "google/protobuf/timestamp.proto";
+import "llm/v1/common.proto";
+
+option go_package = "github.com/orvice/aiproxy/pkg/proto/llm/v1;llmv1";
+
+service GatewayKeyService {
+  rpc CreateGatewayKey(CreateGatewayKeyRequest) returns (CreateGatewayKeyResponse) {
+    option (google.api.http) = {
+      post: "/admin/v1/gatewayKeys"
+      body: "*"
+    };
+  }
+  rpc GetGatewayKey(GetGatewayKeyRequest) returns (GetGatewayKeyResponse) {
+    option (google.api.http) = {get: "/admin/v1/gatewayKeys/{gateway_key_id}"};
+  }
+  rpc ListGatewayKeys(ListGatewayKeysRequest) returns (ListGatewayKeysResponse) {
+    option (google.api.http) = {get: "/admin/v1/gatewayKeys"};
+  }
+  rpc UpdateGatewayKey(UpdateGatewayKeyRequest) returns (UpdateGatewayKeyResponse) {
+    option (google.api.http) = {
+      patch: "/admin/v1/gatewayKeys/{gateway_key.id}"
+      body: "*"
+    };
+  }
+  rpc RotateGatewayKey(RotateGatewayKeyRequest) returns (RotateGatewayKeyResponse) {
+    option (google.api.http) = {
+      post: "/admin/v1/gatewayKeys/{gateway_key_id}:rotate"
+      body: "*"
+    };
+  }
+  rpc RevokeGatewayKey(RevokeGatewayKeyRequest) returns (RevokeGatewayKeyResponse) {
+    option (google.api.http) = {
+      post: "/admin/v1/gatewayKeys/{gateway_key_id}:revoke"
+      body: "*"
+    };
+  }
+}
+
+service UpstreamCredentialService {
+  rpc CreateUpstreamCredential(CreateUpstreamCredentialRequest) returns (CreateUpstreamCredentialResponse) {
+    option (google.api.http) = {
+      post: "/admin/v1/upstreamCredentials"
+      body: "*"
+    };
+  }
+  rpc GetUpstreamCredential(GetUpstreamCredentialRequest) returns (GetUpstreamCredentialResponse) {
+    option (google.api.http) = {get: "/admin/v1/upstreamCredentials/{upstream_credential_id}"};
+  }
+  rpc ListUpstreamCredentials(ListUpstreamCredentialsRequest) returns (ListUpstreamCredentialsResponse) {
+    option (google.api.http) = {get: "/admin/v1/upstreamCredentials"};
+  }
+  rpc UpdateUpstreamCredential(UpdateUpstreamCredentialRequest) returns (UpdateUpstreamCredentialResponse) {
+    option (google.api.http) = {
+      patch: "/admin/v1/upstreamCredentials/{upstream_credential.id}"
+      body: "*"
+    };
+  }
+  rpc RotateUpstreamCredential(RotateUpstreamCredentialRequest) returns (RotateUpstreamCredentialResponse) {
+    option (google.api.http) = {
+      post: "/admin/v1/upstreamCredentials/{upstream_credential_id}:rotate"
+      body: "*"
+    };
+  }
+}
+
+message GatewayKey {
+  string id = 1;
+  string tenant_id = 2;
+  string project_id = 3;
+  string display_name = 4;
+  string secret_hash = 5;
+  KeyStatus status = 6;
+  repeated string allowed_models = 7;
+  repeated string tags = 8;
+  google.protobuf.Timestamp expires_at = 9;
+  string quota_policy_id = 10;
+  string spend_policy_id = 11;
+  google.protobuf.Timestamp last_used_at = 12;
+  Metadata metadata = 13;
+  AuditInfo audit_info = 14;
+}
+
+message GatewayKeySecret {
+  string id = 1;
+  string plaintext_secret = 2;
+  google.protobuf.Timestamp reveal_expires_at = 3;
+}
+
+message UpstreamCredential {
+  string id = 1;
+  VendorType vendor_type = 2;
+  string display_name = 3;
+  CredentialStatus status = 4;
+  string secret_ref = 5;
+  repeated string scopes = 6;
+  google.protobuf.Timestamp last_rotated_at = 7;
+  google.protobuf.Timestamp expires_at = 8;
+  Metadata metadata = 9;
+  AuditInfo audit_info = 10;
+}
+
+message CreateGatewayKeyRequest {
+  GatewayKey gateway_key = 1;
+}
+
+message CreateGatewayKeyResponse {
+  GatewayKey gateway_key = 1;
+  GatewayKeySecret secret = 2;
+}
+
+message GetGatewayKeyRequest {
+  string gateway_key_id = 1;
+}
+
+message GetGatewayKeyResponse {
+  GatewayKey gateway_key = 1;
+}
+
+message ListGatewayKeysRequest {
+  string tenant_id = 1;
+  string project_id = 2;
+  KeyStatus status = 3;
+  PageRequest page = 4;
+}
+
+message ListGatewayKeysResponse {
+  repeated GatewayKey gateway_keys = 1;
+  PageResponse page = 2;
+}
+
+message UpdateGatewayKeyRequest {
+  GatewayKey gateway_key = 1;
+  google.protobuf.FieldMask update_mask = 2;
+}
+
+message UpdateGatewayKeyResponse {
+  GatewayKey gateway_key = 1;
+}
+
+message RotateGatewayKeyRequest {
+  string gateway_key_id = 1;
+  string reason = 2;
+}
+
+message RotateGatewayKeyResponse {
+  GatewayKey gateway_key = 1;
+  GatewayKeySecret secret = 2;
+}
+
+message RevokeGatewayKeyRequest {
+  string gateway_key_id = 1;
+  string reason = 2;
+}
+
+message RevokeGatewayKeyResponse {
+  GatewayKey gateway_key = 1;
+}
+
+message CreateUpstreamCredentialRequest {
+  UpstreamCredential upstream_credential = 1;
+}
+
+message CreateUpstreamCredentialResponse {
+  UpstreamCredential upstream_credential = 1;
+}
+
+message GetUpstreamCredentialRequest {
+  string upstream_credential_id = 1;
+}
+
+message GetUpstreamCredentialResponse {
+  UpstreamCredential upstream_credential = 1;
+}
+
+message ListUpstreamCredentialsRequest {
+  VendorType vendor_type = 1;
+  CredentialStatus status = 2;
+  PageRequest page = 3;
+}
+
+message ListUpstreamCredentialsResponse {
+  repeated UpstreamCredential upstream_credentials = 1;
+  PageResponse page = 2;
+}
+
+message UpdateUpstreamCredentialRequest {
+  UpstreamCredential upstream_credential = 1;
+  google.protobuf.FieldMask update_mask = 2;
+}
+
+message UpdateUpstreamCredentialResponse {
+  UpstreamCredential upstream_credential = 1;
+}
+
+message RotateUpstreamCredentialRequest {
+  string upstream_credential_id = 1;
+  string reason = 2;
+}
+
+message RotateUpstreamCredentialResponse {
+  UpstreamCredential upstream_credential = 1;
+}

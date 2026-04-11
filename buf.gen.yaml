@@ -1,0 +1,24 @@
+version: v2
+plugins:
+  - remote: buf.build/grpc/go
+    out: pkg/proto
+    opt: paths=source_relative
+  - remote: buf.build/grpc-ecosystem/gateway:v2.19.0
+    out: pkg/proto
+    opt: paths=source_relative
+  - remote: buf.build/connectrpc/go:v1.18.1
+    out: pkg/proto 
+    opt:
+      - paths=source_relative
+  - remote: buf.build/protocolbuffers/go:v1.34.1
+    out: pkg/proto
+    opt:
+      - paths=source_relative
+  - remote: buf.build/bufbuild/validate-go
+    out: pkg/proto
+    opt:
+      - paths=source_relative
+  - local: protoc-gen-twirp
+    out: pkg/proto
+    opt:
+      - paths=source_relative

@@ -20,6 +20,7 @@ import (
 	"github.com/openai/openai-go/responses"
 	"github.com/openai/openai-go/shared"
 	"github.com/orvice/aiproxy/internal/config"
+	"github.com/orvice/aiproxy/internal/controlplane"
 	"github.com/orvice/aiproxy/internal/mcp"
 	"github.com/orvice/aiproxy/internal/vendor"
 	"github.com/orvice/aiproxy/internal/workflows"
@@ -31,8 +32,9 @@ import (
 
 var (
 	// VendorManager instance
-	vendorManager *vendor.VendorManager
-	mcpManager    *mcp.Manager
+	vendorManager       *vendor.VendorManager
+	mcpManager          *mcp.Manager
+	controlPlaneManager *controlplane.Manager
 )
 
 // These functions are no longer needed as they are now part of the vendor.Vender implementation
@@ -54,6 +56,14 @@ func initVendorManager() {
 	initGeminiProxy()
 }
 
+func initControlPlane() {
+	controlPlaneManager = controlplane.NewManager(config.Conf)
+	if err := controlPlaneManager.Initialize(); err != nil {
+		slog.Error("Failed to initialize control plane manager", "error", err)
+		controlPlaneManager = nil
+	}
+}
+
 func loggingMiddleware(c *gin.Context) {
 	logger := log.FromContext(c.Request.Context())
 	logger.Info("request",
@@ -68,12 +78,19 @@ func Router(r *gin.Engine) {
 	r.Use(loggingMiddleware)
 	r.Use(otelgin.Middleware("aiproxy"))
 	initVendorManager()
+	initControlPlane()
 
 	r.GET("/", Pong)
-	r.GET("/v1/models", Models)
-	r.Any("/v1/chat/completions", ChatComplections)
-	r.Any("/v1/responses", Responses)
-	r.Any("/v1/responses/:id", ResponseByID)
+
+	v1 := r.Group("/v1")
+	if controlPlaneManager != nil && controlPlaneManager.Enabled() {
+		v1.Use(gatewayAuthMiddleware())
+	}
+	v1.GET("/models", Models)
+	v1.Any("/chat/completions", ChatComplections)
+	v1.Any("/responses", Responses)
+	v1.Any("/responses/:id", ResponseByID)
+
 	r.Any("/v1beta/models/:model", geminiHandler)
 	r.Any("/v1beta/models", geminiHandler)
 	r.GET("/mcp/servers", MCPServers)
@@ -82,9 +99,13 @@ func Router(r *gin.Engine) {
 	r.Any("/mcp/:server/*path", MCPGateway)
 
 	for _, flow := range genkit.ListFlows(workflows.Genkit()) {
-		r.POST("/v1/workflows/"+flow.Name(), func(c *gin.Context) {
+		v1.POST("/workflows/"+flow.Name(), func(c *gin.Context) {
 			genkit.Handler(flow)(c.Writer, c.Request)
 		})
+	}
+
+	if controlPlaneManager != nil && controlPlaneManager.Enabled() {
+		controlPlaneManager.Mount(r)
 	}
 
 	r.NoRoute(proxy)
@@ -216,13 +237,35 @@ func proxy(c *gin.Context) {
 func Models(c *gin.Context) {
 	logger := log.FromContext(c.Request.Context())
 	vendorName := c.Request.Header.Get("x-vendor")
+	tenantID := c.GetString(gatewayContextTenantIDKey)
 
 	logger.Info("models request",
 		"CF-Connecting-IP", c.Request.Header.Get("CF-Connecting-IP"),
 		"ua", c.Request.UserAgent(),
 		"vendor", vendorName,
+		"tenant_id", tenantID,
 		"path", c.Request.URL.Path,
 		"method", c.Request.Method)
+
+	if controlPlaneManager != nil && controlPlaneManager.Enabled() && tenantID != "" {
+		models, err := controlPlaneManager.ListVisibleLogicalModels(c.Request.Context(), tenantID)
+		if err != nil {
+			logger.Error("list tenant logical models failed", "tenant_id", tenantID, "error", err)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": gin.H{
+					"message": "failed to list tenant models",
+					"type":    "server_error",
+					"code":    "model_list_failed",
+				},
+			})
+			return
+		}
+
+		response := mapLogicalModelsToModelList(tenantID, models)
+		logger.Info("returned tenant-filtered logical models", "tenant_id", tenantID, "model_count", len(response.Data))
+		c.JSON(http.StatusOK, response)
+		return
+	}
 
 	// Create a context with timeout
 	ctx, cancel := context.WithTimeout(c.Request.Context(), time.Second*10)
@@ -414,9 +457,17 @@ type tokenUsage struct {
 	TotalTokens      int64 `json:"total_tokens"`
 }
 
-// chatCompletionResponse for parsing usage from response
-type chatCompletionResponse struct {
-	Usage *tokenUsage `json:"usage"`
+type rawTokenUsage struct {
+	PromptTokens     int64 `json:"prompt_tokens"`
+	CompletionTokens int64 `json:"completion_tokens"`
+	InputTokens      int64 `json:"input_tokens"`
+	OutputTokens     int64 `json:"output_tokens"`
+	TotalTokens      int64 `json:"total_tokens"`
+}
+
+// usageEnvelope parses usage from both chat-completions and responses APIs.
+type usageEnvelope struct {
+	Usage *rawTokenUsage `json:"usage"`
 }
 
 type mcpRPCMessage struct {
@@ -530,24 +581,47 @@ func parseTokenUsage(body []byte, isStreaming bool) *tokenUsage {
 			if line == "" || line == "[DONE]" {
 				continue
 			}
-			var resp chatCompletionResponse
-			if err := json.Unmarshal([]byte(line), &resp); err == nil && resp.Usage != nil {
-				return resp.Usage
+			if usage := parseTokenUsagePayload([]byte(line)); usage != nil {
+				return usage
 			}
 		}
 		return nil
 	}
 
-	// Non-streaming response
-	var resp chatCompletionResponse
-	if err := json.Unmarshal(body, &resp); err == nil {
-		return resp.Usage
+	return parseTokenUsagePayload(body)
+}
+
+func parseTokenUsagePayload(payload []byte) *tokenUsage {
+	var resp usageEnvelope
+	if err := json.Unmarshal(payload, &resp); err != nil || resp.Usage == nil {
+		return nil
 	}
-	return nil
+
+	promptTokens := resp.Usage.PromptTokens
+	if promptTokens == 0 {
+		promptTokens = resp.Usage.InputTokens
+	}
+
+	completionTokens := resp.Usage.CompletionTokens
+	if completionTokens == 0 {
+		completionTokens = resp.Usage.OutputTokens
+	}
+
+	totalTokens := resp.Usage.TotalTokens
+	if totalTokens == 0 {
+		totalTokens = promptTokens + completionTokens
+	}
+
+	return &tokenUsage{
+		PromptTokens:     promptTokens,
+		CompletionTokens: completionTokens,
+		TotalTokens:      totalTokens,
+	}
 }
 
 func ChatComplections(c *gin.Context) {
 	logger := log.FromContext(c.Request.Context())
+	startedAt := time.Now().UTC()
 	var req chatCompletionsRequest
 	if err := c.ShouldBindBodyWithJSON(&req); err != nil {
 		logger.Error("bind json error",
@@ -565,15 +639,54 @@ func ChatComplections(c *gin.Context) {
 	}
 
 	model := string(req.Model)
-	// Get the appropriate vendor for the model
+	requestedModel := model
 	vendorName := vendorManager.GetVendorForModel(model)
+	tenantID := c.GetString(gatewayContextTenantIDKey)
+	projectID := c.GetString(gatewayContextProjectIDKey)
+	gatewayKeyID := c.GetString(gatewayContextKeyIDKey)
+	if controlPlaneManager != nil && controlPlaneManager.Enabled() && tenantID != "" {
+		if err := controlPlaneManager.AdmitInferenceRequest(c.Request.Context(), tenantID, projectID, gatewayKeyID); err != nil {
+			writeGatewayRoutingError(c, err)
+			return
+		}
+
+		decision, err := controlPlaneManager.ResolveInferenceRoute(c.Request.Context(), tenantID, projectID, gatewayKeyID, requestedModel)
+		if err != nil {
+			writeGatewayRoutingError(c, err)
+			return
+		}
+		if decision != nil {
+			vendorName = decision.VendorName
+			model = decision.UpstreamModel
+			if model != requestedModel {
+				if err := rewriteRequestModel(c, model); err != nil {
+					logger.Error("rewrite request model failed", "requested_model", requestedModel, "upstream_model", model, "error", err)
+					c.JSON(http.StatusInternalServerError, gin.H{
+						"error": gin.H{
+							"message": "failed to prepare upstream request",
+							"type":    "server_error",
+							"code":    "request_rewrite_failed",
+						},
+					})
+					return
+				}
+			}
+			c.Request.Header.Set("X-Logical-Model-Id", decision.LogicalModelID)
+			if decision.PricingSnapshotID != "" {
+				c.Request.Header.Set("X-Pricing-Snapshot-Id", decision.PricingSnapshotID)
+			}
+		}
+	}
 
 	logger.Info("chat completions request",
 		"CF-Connecting-IP", c.Request.Header.Get("CF-Connecting-IP"),
 		"ua", c.Request.UserAgent(),
 		"method", c.Request.Method,
-		"model", model,
+		"requested_model", requestedModel,
+		"upstream_model", model,
 		"vendor", vendorName,
+		"tenant_id", tenantID,
+		"project_id", projectID,
 		"message_count", len(req.Messages),
 		"context_size", contextSize,
 		"path", c.Request.URL.Path)
@@ -583,22 +696,36 @@ func ChatComplections(c *gin.Context) {
 	c.Writer = capture
 
 	// Get the proxy for the vendor and serve the request
-	proxy := vendorManager.GetProxyForModel(model)
+	proxy := vendorManager.GetProxyForVendor(vendorName)
 	proxy.ServeHTTP(c.Writer, c.Request)
+	completedAt := time.Now().UTC()
 
 	// Check if streaming by content-type
 	contentType := capture.Header().Get("Content-Type")
 	isStreaming := strings.Contains(contentType, "text/event-stream")
+	failureCategory := ""
+	failureMessage := ""
+	if capture.Status() >= http.StatusBadGateway {
+		failureCategory = "upstream_error"
+		failureMessage = http.StatusText(capture.Status())
+	}
 
 	// Parse and log token usage
 	if usage := parseTokenUsage(capture.body.Bytes(), isStreaming); usage != nil {
 		logger.Info("chat completions token usage",
-			"model", model,
+			"requested_model", requestedModel,
+			"upstream_model", model,
 			"vendor", vendorName,
 			"prompt_tokens", usage.PromptTokens,
 			"completion_tokens", usage.CompletionTokens,
 			"total_tokens", usage.TotalTokens)
+		recordGatewayUsage(c, vendorName, model, usage, startedAt, completedAt)
+		recordGatewayRequestTrace(c, vendorName, model, usage, startedAt, completedAt, failureCategory, failureMessage)
+		return
 	}
+
+	recordGatewayUsage(c, vendorName, model, nil, startedAt, completedAt)
+	recordGatewayRequestTrace(c, vendorName, model, nil, startedAt, completedAt, failureCategory, failureMessage)
 }
 
 func Pong(c *gin.Context) {
@@ -649,6 +776,7 @@ func Responses(c *gin.Context) {
 
 	// For POST requests, parse the model from body
 	if c.Request.Method == http.MethodPost {
+		startedAt := time.Now().UTC()
 		var req responsesRequest
 		if err := c.ShouldBindBodyWithJSON(&req); err != nil {
 			logger.Error("bind json error", "error", err)
@@ -665,17 +793,84 @@ func Responses(c *gin.Context) {
 		}
 
 		model := string(req.Model)
+		requestedModel := model
 		vendorName := vendorManager.GetVendorForModel(model)
+		tenantID := c.GetString(gatewayContextTenantIDKey)
+		projectID := c.GetString(gatewayContextProjectIDKey)
+		gatewayKeyID := c.GetString(gatewayContextKeyIDKey)
+		if controlPlaneManager != nil && controlPlaneManager.Enabled() && tenantID != "" {
+			if err := controlPlaneManager.AdmitInferenceRequest(c.Request.Context(), tenantID, projectID, gatewayKeyID); err != nil {
+				writeGatewayRoutingError(c, err)
+				return
+			}
+
+			decision, err := controlPlaneManager.ResolveInferenceRoute(c.Request.Context(), tenantID, projectID, gatewayKeyID, requestedModel)
+			if err != nil {
+				writeGatewayRoutingError(c, err)
+				return
+			}
+			if decision != nil {
+				vendorName = decision.VendorName
+				model = decision.UpstreamModel
+				if model != requestedModel {
+					if err := rewriteRequestModel(c, model); err != nil {
+						logger.Error("rewrite responses model failed", "requested_model", requestedModel, "upstream_model", model, "error", err)
+						c.JSON(http.StatusInternalServerError, gin.H{
+							"error": gin.H{
+								"message": "failed to prepare upstream request",
+								"type":    "server_error",
+								"code":    "request_rewrite_failed",
+							},
+						})
+						return
+					}
+				}
+				c.Request.Header.Set("X-Logical-Model-Id", decision.LogicalModelID)
+				if decision.PricingSnapshotID != "" {
+					c.Request.Header.Set("X-Pricing-Snapshot-Id", decision.PricingSnapshotID)
+				}
+			}
+		}
 		logger.Info("responses request",
 			"method", c.Request.Method,
-			"model", model,
+			"requested_model", requestedModel,
+			"upstream_model", model,
 			"vendor", vendorName,
+			"tenant_id", tenantID,
+			"project_id", projectID,
 			"input_count", len(items),
 			"context_size", contextSize,
 			"path", c.Request.URL.Path)
 
-		proxy := vendorManager.GetProxyForModel(model)
+		capture := newResponseCapture(c.Writer)
+		c.Writer = capture
+
+		proxy := vendorManager.GetProxyForVendor(vendorName)
 		proxy.ServeHTTP(c.Writer, c.Request)
+		completedAt := time.Now().UTC()
+
+		contentType := capture.Header().Get("Content-Type")
+		isStreaming := strings.Contains(contentType, "text/event-stream")
+		failureCategory := ""
+		failureMessage := ""
+		if capture.Status() >= http.StatusBadGateway {
+			failureCategory = "upstream_error"
+			failureMessage = http.StatusText(capture.Status())
+		}
+		if usage := parseTokenUsage(capture.body.Bytes(), isStreaming); usage != nil {
+			logger.Info("responses token usage",
+				"requested_model", requestedModel,
+				"upstream_model", model,
+				"vendor", vendorName,
+				"prompt_tokens", usage.PromptTokens,
+				"completion_tokens", usage.CompletionTokens,
+				"total_tokens", usage.TotalTokens)
+			recordGatewayUsage(c, vendorName, model, usage, startedAt, completedAt)
+			recordGatewayRequestTrace(c, vendorName, model, usage, startedAt, completedAt, failureCategory, failureMessage)
+			return
+		}
+		recordGatewayUsage(c, vendorName, model, nil, startedAt, completedAt)
+		recordGatewayRequestTrace(c, vendorName, model, nil, startedAt, completedAt, failureCategory, failureMessage)
 		return
 	}
 
