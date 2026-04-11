@@ -28,15 +28,12 @@ type ControlPlane struct {
 }
 
 type MongoConfig struct {
-	URI            string `yaml:"uri"`
-	Database       string `yaml:"database"`
-	ConnectTimeout string `yaml:"connectTimeout"`
+	StoreKey string `yaml:"storeKey"`
+	Database string `yaml:"database"`
 }
 
 type RedisConfig struct {
-	Addr      string `yaml:"addr"`
-	Password  string `yaml:"password"`
-	DB        int    `yaml:"db"`
+	StoreKey  string `yaml:"storeKey"`
 	KeyPrefix string `yaml:"keyPrefix"`
 	TTL       string `yaml:"ttl"`
 }
@@ -45,20 +42,21 @@ func (Config) Print() {
 }
 
 func (c ControlPlane) IsEnabled() bool {
-	return c.Enabled || (c.Mongo.URI != "" && c.Mongo.Database != "" && c.Redis.Addr != "")
+	return c.Enabled || c.Mongo.Database != ""
 }
 
-func (c MongoConfig) GetConnectTimeout() time.Duration {
-	if c.ConnectTimeout == "" {
-		return 5 * time.Second
+func (c MongoConfig) GetStoreKey() string {
+	if c.StoreKey == "" {
+		return "controlplane"
 	}
+	return c.StoreKey
+}
 
-	timeout, err := time.ParseDuration(c.ConnectTimeout)
-	if err != nil {
-		return 5 * time.Second
+func (c RedisConfig) GetStoreKey() string {
+	if c.StoreKey == "" {
+		return "controlplane"
 	}
-
-	return timeout
+	return c.StoreKey
 }
 
 func (c RedisConfig) GetTTL() time.Duration {

@@ -8,14 +8,21 @@ defaultMcpServer: filesystem
 controlPlane:
   enabled: true
   mongo:
-    uri: mongodb://127.0.0.1:27017
+    storeKey: controlplane
     database: aiproxy
-    connectTimeout: 5s
   redis:
-    addr: 127.0.0.1:6379
-    db: 0
+    storeKey: controlplane
     keyPrefix: aiproxy
     ttl: 5m
+
+store:
+  mongo:
+    controlplane:
+      uri: mongodb://127.0.0.1:27017
+  redis:
+    controlplane:
+      addr: 127.0.0.1:6379
+      db: 0
 
 vendors:
   - name: openai

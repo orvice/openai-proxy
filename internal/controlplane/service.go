@@ -66,7 +66,7 @@ func (m *Manager) Initialize() error {
 		return nil
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), m.conf.ControlPlane.Mongo.GetConnectTimeout())
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	backend, err := newBackend(ctx, m.conf.ControlPlane)

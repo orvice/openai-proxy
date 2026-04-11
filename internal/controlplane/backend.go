@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"time"
 
+	coremongo "butterfly.orx.me/core/store/mongo"
+	coreredis "butterfly.orx.me/core/store/redis"
 	"github.com/redis/go-redis/v9"
 	"go.mongodb.org/mongo-driver/v2/mongo"
-	"go.mongodb.org/mongo-driver/v2/mongo/options"
-	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
 
 	"github.com/orvice/aiproxy/internal/config"
 )
@@ -40,23 +40,17 @@ type backend struct {
 }
 
 func newBackend(ctx context.Context, conf config.ControlPlane) (*backend, error) {
-	client, err := mongo.Connect(options.Client().ApplyURI(conf.Mongo.URI))
-	if err != nil {
-		return nil, fmt.Errorf("connect mongo: %w", err)
+	client := coremongo.GetClient(conf.Mongo.GetStoreKey())
+	if client == nil {
+		return nil, fmt.Errorf("mongo client %q is not initialized by butterfly store", conf.Mongo.GetStoreKey())
 	}
 
-	if err := client.Ping(ctx, readpref.Primary()); err != nil {
-		return nil, fmt.Errorf("ping mongo: %w", err)
+	redisClient := coreredis.GetClient(conf.Redis.GetStoreKey())
+	if redisClient == nil {
+		return nil, fmt.Errorf("redis client %q is not initialized by butterfly store", conf.Redis.GetStoreKey())
 	}
-
-	redisClient := redis.NewClient(&redis.Options{
-		Addr:     conf.Redis.Addr,
-		Password: conf.Redis.Password,
-		DB:       conf.Redis.DB,
-	})
-
 	if err := redisClient.Ping(ctx).Err(); err != nil {
-		return nil, fmt.Errorf("ping redis: %w", err)
+		return nil, fmt.Errorf("ping redis from butterfly store: %w", err)
 	}
 
 	return &backend{
@@ -69,20 +63,8 @@ func newBackend(ctx context.Context, conf config.ControlPlane) (*backend, error)
 }
 
 func (b *backend) Close(ctx context.Context) error {
-	if b == nil {
-		return nil
-	}
-
-	if b.redisClient != nil {
-		if err := b.redisClient.Close(); err != nil {
-			return err
-		}
-	}
-
-	if b.mongoClient != nil {
-		return b.mongoClient.Disconnect(ctx)
-	}
-
+	_ = ctx
+	// mongo/redis lifecycle is owned by butterfly store init.
 	return nil
 }
 
