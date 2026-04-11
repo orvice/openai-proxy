@@ -1,6 +1,6 @@
 module github.com/orvice/aiproxy
 
-go 1.24.1
+go 1.26
 
 require (
 	butterfly.orx.me/core v0.0.0-20250326150726-e3b4a5d6dff9
