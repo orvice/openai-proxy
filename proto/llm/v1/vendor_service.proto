@@ -1,0 +1,384 @@
+syntax = "proto3";
+
+package llm.v1;
+
+import "google/api/annotations.proto";
+import "google/protobuf/duration.proto";
+import "google/protobuf/field_mask.proto";
+import "llm/v1/common.proto";
+
+option go_package = "github.com/orvice/aiproxy/pkg/proto/llm/v1;llmv1";
+
+service VendorService {
+  rpc CreateVendor(CreateVendorRequest) returns (CreateVendorResponse) {
+    option (google.api.http) = {
+      post: "/admin/v1/vendors"
+      body: "*"
+    };
+  }
+  rpc GetVendor(GetVendorRequest) returns (GetVendorResponse) {
+    option (google.api.http) = {get: "/admin/v1/vendors/{vendor_id}"};
+  }
+  rpc ListVendors(ListVendorsRequest) returns (ListVendorsResponse) {
+    option (google.api.http) = {get: "/admin/v1/vendors"};
+  }
+  rpc UpdateVendor(UpdateVendorRequest) returns (UpdateVendorResponse) {
+    option (google.api.http) = {
+      patch: "/admin/v1/vendors/{vendor.id}"
+      body: "*"
+    };
+  }
+}
+
+service ModelCatalogService {
+  rpc CreateLogicalModel(CreateLogicalModelRequest) returns (CreateLogicalModelResponse) {
+    option (google.api.http) = {
+      post: "/admin/v1/models"
+      body: "*"
+    };
+  }
+  rpc GetLogicalModel(GetLogicalModelRequest) returns (GetLogicalModelResponse) {
+    option (google.api.http) = {get: "/admin/v1/models/{logical_model_id}"};
+  }
+  rpc ListLogicalModels(ListLogicalModelsRequest) returns (ListLogicalModelsResponse) {
+    option (google.api.http) = {get: "/admin/v1/models"};
+  }
+  rpc UpdateLogicalModel(UpdateLogicalModelRequest) returns (UpdateLogicalModelResponse) {
+    option (google.api.http) = {
+      patch: "/admin/v1/models/{logical_model.id}"
+      body: "*"
+    };
+  }
+}
+
+service RoutingPolicyService {
+  rpc CreateRoutingPolicy(CreateRoutingPolicyRequest) returns (CreateRoutingPolicyResponse) {
+    option (google.api.http) = {
+      post: "/admin/v1/routingPolicies"
+      body: "*"
+    };
+  }
+  rpc GetRoutingPolicy(GetRoutingPolicyRequest) returns (GetRoutingPolicyResponse) {
+    option (google.api.http) = {get: "/admin/v1/routingPolicies/{routing_policy_id}"};
+  }
+  rpc ListRoutingPolicies(ListRoutingPoliciesRequest) returns (ListRoutingPoliciesResponse) {
+    option (google.api.http) = {get: "/admin/v1/routingPolicies"};
+  }
+  rpc UpdateRoutingPolicy(UpdateRoutingPolicyRequest) returns (UpdateRoutingPolicyResponse) {
+    option (google.api.http) = {
+      patch: "/admin/v1/routingPolicies/{routing_policy.id}"
+      body: "*"
+    };
+  }
+}
+
+service QuotaPolicyService {
+  rpc CreateQuotaPolicy(CreateQuotaPolicyRequest) returns (CreateQuotaPolicyResponse) {
+    option (google.api.http) = {
+      post: "/admin/v1/quotaPolicies"
+      body: "*"
+    };
+  }
+  rpc GetQuotaPolicy(GetQuotaPolicyRequest) returns (GetQuotaPolicyResponse) {
+    option (google.api.http) = {get: "/admin/v1/quotaPolicies/{quota_policy_id}"};
+  }
+  rpc ListQuotaPolicies(ListQuotaPoliciesRequest) returns (ListQuotaPoliciesResponse) {
+    option (google.api.http) = {get: "/admin/v1/quotaPolicies"};
+  }
+  rpc UpdateQuotaPolicy(UpdateQuotaPolicyRequest) returns (UpdateQuotaPolicyResponse) {
+    option (google.api.http) = {
+      patch: "/admin/v1/quotaPolicies/{quota_policy.id}"
+      body: "*"
+    };
+  }
+}
+
+service SpendPolicyService {
+  rpc CreateSpendPolicy(CreateSpendPolicyRequest) returns (CreateSpendPolicyResponse) {
+    option (google.api.http) = {
+      post: "/admin/v1/spendPolicies"
+      body: "*"
+    };
+  }
+  rpc GetSpendPolicy(GetSpendPolicyRequest) returns (GetSpendPolicyResponse) {
+    option (google.api.http) = {get: "/admin/v1/spendPolicies/{spend_policy_id}"};
+  }
+  rpc ListSpendPolicies(ListSpendPoliciesRequest) returns (ListSpendPoliciesResponse) {
+    option (google.api.http) = {get: "/admin/v1/spendPolicies"};
+  }
+  rpc UpdateSpendPolicy(UpdateSpendPolicyRequest) returns (UpdateSpendPolicyResponse) {
+    option (google.api.http) = {
+      patch: "/admin/v1/spendPolicies/{spend_policy.id}"
+      body: "*"
+    };
+  }
+}
+
+message Vendor {
+  string id = 1;
+  string name = 2;
+  string display_name = 3;
+  VendorType vendor_type = 4;
+  string endpoint = 5;
+  string upstream_credential_id = 6;
+  ResourceStatus status = 7;
+  repeated string supported_capabilities = 8;
+  google.protobuf.Duration timeout = 9;
+  Metadata metadata = 10;
+  AuditInfo audit_info = 11;
+  repeated Condition conditions = 12;
+}
+
+message VendorTarget {
+  string vendor_id = 1;
+  string upstream_model = 2;
+  int32 priority = 3;
+  int32 weight = 4;
+  bool enabled = 5;
+}
+
+message LogicalModel {
+  string id = 1;
+  string name = 2;
+  string display_name = 3;
+  string description = 4;
+  ModelVisibility visibility = 5;
+  ResourceStatus status = 6;
+  repeated string capabilities = 7;
+  repeated VendorTarget targets = 8;
+  string default_pricing_snapshot_id = 9;
+  repeated string allowed_tenant_ids = 10;
+  Metadata metadata = 11;
+  AuditInfo audit_info = 12;
+}
+
+message RoutingPolicy {
+  string id = 1;
+  string name = 2;
+  string tenant_id = 3;
+  string project_id = 4;
+  string logical_model_id = 5;
+  RoutingStrategy strategy = 6;
+  repeated VendorTarget targets = 7;
+  ResourceStatus status = 8;
+  bool failover_enabled = 9;
+  bool health_check_required = 10;
+  Metadata metadata = 11;
+  AuditInfo audit_info = 12;
+}
+
+message QuotaPolicy {
+  string id = 1;
+  string name = 2;
+  string tenant_id = 3;
+  string project_id = 4;
+  string gateway_key_id = 5;
+  QuotaPeriod period = 6;
+  int64 request_limit = 7;
+  int64 token_limit = 8;
+  int64 concurrency_limit = 9;
+  ResourceStatus status = 10;
+  Metadata metadata = 11;
+  AuditInfo audit_info = 12;
+}
+
+message SpendPolicy {
+  string id = 1;
+  string name = 2;
+  string tenant_id = 3;
+  string project_id = 4;
+  string gateway_key_id = 5;
+  Money spend_cap = 6;
+  QuotaPeriod period = 7;
+  ResourceStatus status = 8;
+  Metadata metadata = 9;
+  AuditInfo audit_info = 10;
+}
+
+message CreateVendorRequest {
+  Vendor vendor = 1;
+}
+
+message CreateVendorResponse {
+  Vendor vendor = 1;
+}
+
+message GetVendorRequest {
+  string vendor_id = 1;
+}
+
+message GetVendorResponse {
+  Vendor vendor = 1;
+}
+
+message ListVendorsRequest {
+  VendorType vendor_type = 1;
+  ResourceStatus status = 2;
+  PageRequest page = 3;
+}
+
+message ListVendorsResponse {
+  repeated Vendor vendors = 1;
+  PageResponse page = 2;
+}
+
+message UpdateVendorRequest {
+  Vendor vendor = 1;
+  google.protobuf.FieldMask update_mask = 2;
+}
+
+message UpdateVendorResponse {
+  Vendor vendor = 1;
+}
+
+message CreateLogicalModelRequest {
+  LogicalModel logical_model = 1;
+}
+
+message CreateLogicalModelResponse {
+  LogicalModel logical_model = 1;
+}
+
+message GetLogicalModelRequest {
+  string logical_model_id = 1;
+}
+
+message GetLogicalModelResponse {
+  LogicalModel logical_model = 1;
+}
+
+message ListLogicalModelsRequest {
+  string tenant_id = 1;
+  string project_id = 2;
+  ModelVisibility visibility = 3;
+  ResourceStatus status = 4;
+  PageRequest page = 5;
+}
+
+message ListLogicalModelsResponse {
+  repeated LogicalModel logical_models = 1;
+  PageResponse page = 2;
+}
+
+message UpdateLogicalModelRequest {
+  LogicalModel logical_model = 1;
+  google.protobuf.FieldMask update_mask = 2;
+}
+
+message UpdateLogicalModelResponse {
+  LogicalModel logical_model = 1;
+}
+
+message CreateRoutingPolicyRequest {
+  RoutingPolicy routing_policy = 1;
+}
+
+message CreateRoutingPolicyResponse {
+  RoutingPolicy routing_policy = 1;
+}
+
+message GetRoutingPolicyRequest {
+  string routing_policy_id = 1;
+}
+
+message GetRoutingPolicyResponse {
+  RoutingPolicy routing_policy = 1;
+}
+
+message ListRoutingPoliciesRequest {
+  string tenant_id = 1;
+  string project_id = 2;
+  string logical_model_id = 3;
+  ResourceStatus status = 4;
+  PageRequest page = 5;
+}
+
+message ListRoutingPoliciesResponse {
+  repeated RoutingPolicy routing_policies = 1;
+  PageResponse page = 2;
+}
+
+message UpdateRoutingPolicyRequest {
+  RoutingPolicy routing_policy = 1;
+  google.protobuf.FieldMask update_mask = 2;
+}
+
+message UpdateRoutingPolicyResponse {
+  RoutingPolicy routing_policy = 1;
+}
+
+message CreateQuotaPolicyRequest {
+  QuotaPolicy quota_policy = 1;
+}
+
+message CreateQuotaPolicyResponse {
+  QuotaPolicy quota_policy = 1;
+}
+
+message GetQuotaPolicyRequest {
+  string quota_policy_id = 1;
+}
+
+message GetQuotaPolicyResponse {
+  QuotaPolicy quota_policy = 1;
+}
+
+message ListQuotaPoliciesRequest {
+  string tenant_id = 1;
+  string project_id = 2;
+  string gateway_key_id = 3;
+  ResourceStatus status = 4;
+  PageRequest page = 5;
+}
+
+message ListQuotaPoliciesResponse {
+  repeated QuotaPolicy quota_policies = 1;
+  PageResponse page = 2;
+}
+
+message UpdateQuotaPolicyRequest {
+  QuotaPolicy quota_policy = 1;
+  google.protobuf.FieldMask update_mask = 2;
+}
+
+message UpdateQuotaPolicyResponse {
+  QuotaPolicy quota_policy = 1;
+}
+
+message CreateSpendPolicyRequest {
+  SpendPolicy spend_policy = 1;
+}
+
+message CreateSpendPolicyResponse {
+  SpendPolicy spend_policy = 1;
+}
+
+message GetSpendPolicyRequest {
+  string spend_policy_id = 1;
+}
+
+message GetSpendPolicyResponse {
+  SpendPolicy spend_policy = 1;
+}
+
+message ListSpendPoliciesRequest {
+  string tenant_id = 1;
+  string project_id = 2;
+  string gateway_key_id = 3;
+  ResourceStatus status = 4;
+  PageRequest page = 5;
+}
+
+message ListSpendPoliciesResponse {
+  repeated SpendPolicy spend_policies = 1;
+  PageResponse page = 2;
+}
+
+message UpdateSpendPolicyRequest {
+  SpendPolicy spend_policy = 1;
+  google.protobuf.FieldMask update_mask = 2;
+}
+
+message UpdateSpendPolicyResponse {
+  SpendPolicy spend_policy = 1;
+}

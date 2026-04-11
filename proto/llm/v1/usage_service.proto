@@ -1,0 +1,184 @@
+syntax = "proto3";
+
+package llm.v1;
+
+import "google/api/annotations.proto";
+import "google/protobuf/timestamp.proto";
+import "llm/v1/common.proto";
+
+option go_package = "github.com/orvice/aiproxy/pkg/proto/llm/v1;llmv1";
+
+service UsageService {
+  rpc ListUsageRecords(ListUsageRecordsRequest) returns (ListUsageRecordsResponse) {
+    option (google.api.http) = {get: "/admin/v1/usageRecords"};
+  }
+  rpc GetUsageSummary(GetUsageSummaryRequest) returns (GetUsageSummaryResponse) {
+    option (google.api.http) = {get: "/admin/v1/usageSummary"};
+  }
+}
+
+service BillingService {
+  rpc ListPricingSnapshots(ListPricingSnapshotsRequest) returns (ListPricingSnapshotsResponse) {
+    option (google.api.http) = {get: "/admin/v1/pricingSnapshots"};
+  }
+  rpc GetBalance(GetBalanceRequest) returns (GetBalanceResponse) {
+    option (google.api.http) = {get: "/admin/v1/tenants/{tenant_id}/balance"};
+  }
+  rpc ListInvoices(ListInvoicesRequest) returns (ListInvoicesResponse) {
+    option (google.api.http) = {get: "/admin/v1/tenants/{tenant_id}/invoices"};
+  }
+  rpc GetInvoice(GetInvoiceRequest) returns (GetInvoiceResponse) {
+    option (google.api.http) = {get: "/admin/v1/invoices/{invoice_id}"};
+  }
+}
+
+message UsageRecord {
+  string id = 1;
+  string tenant_id = 2;
+  string project_id = 3;
+  string gateway_key_id = 4;
+  string logical_model_id = 5;
+  string vendor_id = 6;
+  string upstream_model = 7;
+  string request_id = 8;
+  int64 prompt_tokens = 9;
+  int64 completion_tokens = 10;
+  int64 total_tokens = 11;
+  int64 billable_units = 12;
+  string pricing_snapshot_id = 13;
+  Money billed_amount = 14;
+  google.protobuf.Timestamp started_at = 15;
+  google.protobuf.Timestamp completed_at = 16;
+  ResourceStatus status = 17;
+  Metadata metadata = 18;
+}
+
+message UsageSummary {
+  string tenant_id = 1;
+  string project_id = 2;
+  string logical_model_id = 3;
+  string vendor_id = 4;
+  TimeRange time_range = 5;
+  int64 request_count = 6;
+  int64 prompt_tokens = 7;
+  int64 completion_tokens = 8;
+  int64 total_tokens = 9;
+  int64 billable_units = 10;
+  Money billed_amount = 11;
+}
+
+message PricingDimension {
+  string name = 1;
+  string unit = 2;
+  Money price = 3;
+}
+
+message PricingSnapshot {
+  string id = 1;
+  string logical_model_id = 2;
+  string vendor_id = 3;
+  string display_name = 4;
+  repeated PricingDimension dimensions = 5;
+  google.protobuf.Timestamp effective_at = 6;
+  google.protobuf.Timestamp created_at = 7;
+  ResourceStatus status = 8;
+  Metadata metadata = 9;
+}
+
+message Balance {
+  string tenant_id = 1;
+  BillingMode billing_mode = 2;
+  Money available_balance = 3;
+  Money current_period_spend = 4;
+  Money outstanding_amount = 5;
+  google.protobuf.Timestamp as_of_time = 6;
+}
+
+message InvoiceLineItem {
+  string id = 1;
+  string usage_record_id = 2;
+  string description = 3;
+  int64 quantity = 4;
+  Money unit_price = 5;
+  Money amount = 6;
+}
+
+message Invoice {
+  string id = 1;
+  string tenant_id = 2;
+  string billing_period = 3;
+  InvoiceStatus status = 4;
+  Money subtotal = 5;
+  Money tax = 6;
+  Money total = 7;
+  google.protobuf.Timestamp due_at = 8;
+  google.protobuf.Timestamp paid_at = 9;
+  repeated InvoiceLineItem line_items = 10;
+  Metadata metadata = 11;
+}
+
+message ListUsageRecordsRequest {
+  string tenant_id = 1;
+  string project_id = 2;
+  string gateway_key_id = 3;
+  string logical_model_id = 4;
+  string vendor_id = 5;
+  TimeRange time_range = 6;
+  PageRequest page = 7;
+}
+
+message ListUsageRecordsResponse {
+  repeated UsageRecord usage_records = 1;
+  PageResponse page = 2;
+}
+
+message GetUsageSummaryRequest {
+  string tenant_id = 1;
+  string project_id = 2;
+  string logical_model_id = 3;
+  string vendor_id = 4;
+  TimeRange time_range = 5;
+}
+
+message GetUsageSummaryResponse {
+  repeated UsageSummary summaries = 1;
+}
+
+message ListPricingSnapshotsRequest {
+  string logical_model_id = 1;
+  string vendor_id = 2;
+  ResourceStatus status = 3;
+  PageRequest page = 4;
+}
+
+message ListPricingSnapshotsResponse {
+  repeated PricingSnapshot pricing_snapshots = 1;
+  PageResponse page = 2;
+}
+
+message GetBalanceRequest {
+  string tenant_id = 1;
+}
+
+message GetBalanceResponse {
+  Balance balance = 1;
+}
+
+message ListInvoicesRequest {
+  string tenant_id = 1;
+  InvoiceStatus status = 2;
+  PageRequest page = 3;
+}
+
+message ListInvoicesResponse {
+  repeated Invoice invoices = 1;
+  PageResponse page = 2;
+}
+
+message GetInvoiceRequest {
+  string invoice_id = 1;
+}
+
+message GetInvoiceResponse {
+  Invoice invoice = 1;
+}

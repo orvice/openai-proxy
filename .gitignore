@@ -1,3 +1,10 @@
 bin/
 dist/
 .kiro/
+.codex/
+.claude/
+.kilocode/
+openspec/
+.github/skills/
+.agents/
+docs/

@@ -5,6 +5,25 @@ defaultVendor: openai
 workflowVender: openai
 defaultMcpServer: filesystem
 
+controlPlane:
+  enabled: true
+  mongo:
+    storeKey: controlplane
+    database: aiproxy
+  redis:
+    storeKey: controlplane
+    keyPrefix: aiproxy
+    ttl: 5m
+
+store:
+  mongo:
+    controlplane:
+      uri: mongodb://127.0.0.1:27017
+  redis:
+    controlplane:
+      addr: 127.0.0.1:6379
+      db: 0
+
 vendors:
   - name: openai
     host: https://api.openai.com

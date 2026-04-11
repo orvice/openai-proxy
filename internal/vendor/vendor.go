@@ -112,8 +112,9 @@ func (v *Vender) ReverseProxy() (*httputil.ReverseProxy, error) {
 			"method", req.Method,
 			"error", err)
 
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadGateway)
-		w.Write([]byte(fmt.Sprintf(`{"error": {"message": "Proxy error: %v", "type": "proxy_error"}}`, err)))
+		w.Write([]byte(`{"error":{"message":"upstream vendor request failed","type":"upstream_error","code":"upstream_unavailable"}}`))
 	}
 
 	slog.Info("Reverse proxy created successfully", "vendor", v.conf.Name, "target_host", url.Host)
